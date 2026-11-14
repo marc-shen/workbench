@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the controller online; bypass proxy routing while physical links are down."""
+"""Event-driven Steam Deck routing: standby first, native Wi-Fi authentication."""
 import argparse
 import json
 import os
@@ -8,49 +8,27 @@ import signal
 import subprocess as sp
 import threading
 import time
-import urllib.request
 
-UPLINK_TYPES = {'wifi', 'ethernet', 'gsm', 'cdma', 'bluetooth', 'wimax'}
+from network_link import NetworkEvents, snapshot, check_underlay
+from mihomo_runtime import Runtime, private_json
 
 
 def state_path():
     return Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'workbench/mihomo-network.json'
 
 
-def physical_connected(devices):
-    for line in devices.splitlines():
-        fields = line.split(':', 2)
-        if len(fields) == 3 and fields[1] in UPLINK_TYPES and fields[2] in ('connected', 'connected (externally)'):
-            return True
-    return False
-
-
 def network_available():
-    """Unknown probe results must not disable an otherwise working connection."""
-    env = dict(os.environ, LC_ALL='C')
-    try:
-        result = sp.run(['nmcli', '-t', '-f', 'DEVICE,TYPE,STATE', 'device', 'status'],
-                        capture_output=True, text=True, timeout=4, env=env)
-        if result.returncode:
-            return None, 'networkmanager-unavailable'
-        if not physical_connected(result.stdout):
-            return False, 'no-physical-uplink'
-        connectivity = sp.run(['nmcli', '-g', 'CONNECTIVITY', 'general'],
-                              capture_output=True, text=True, timeout=4, env=env)
-        if connectivity.returncode == 0 and connectivity.stdout.strip() == 'portal':
-            return False, 'captive-portal'
-        # "limited"/"unknown" may just mean NM's test site is blocked. Never
-        # equate one failed Internet probe or a failed proxy node with no Wi-Fi.
-        return True, 'uplink-connected'
-    except (OSError, sp.TimeoutExpired):
-        return None, 'networkmanager-unavailable'
+    link = snapshot()
+    if link.state == 'ready':
+        return True, 'uplink-ready'
+    if link.state in ('offline', 'portal'):
+        return False, link.state
+    return None, link.state
 
 
 class StableLink:
     def __init__(self, delay=10):
-        self.delay = delay
-        self.sample = None
-        self.since = 0
+        self.delay, self.sample, self.since = delay, None, 0
 
     def update(self, value, now):
         if value is None or value != self.sample:
@@ -71,88 +49,111 @@ def stop_child(child):
         child.wait(timeout=5)
 
 
-class ProxySwitch:
-    """Change routing only, leaving the core, dashboard and node choices intact."""
-    def __init__(self, endpoint='http://127.0.0.1:9090'):
-        self.endpoint = endpoint
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        self.offline = False
-        self.restore = None
-
-    def request(self, method, path, data=None):
-        request = urllib.request.Request(self.endpoint + path, method=method,
-            data=json.dumps(data).encode() if data is not None else None,
-            headers={'Content-Type': 'application/json'})
-        with self.opener.open(request, timeout=3) as reply:
-            body = reply.read()
-            return json.loads(body) if body else None
-
-    def set_online(self, online):
-        if not online and not self.offline:
-            if self.restore is None:
-                config = self.request('GET', '/configs')
-                self.restore = {'mode': config['mode'],
-                                'tun': {'enable': config['tun']['enable']}}
-            self.request('PATCH', '/configs', {'mode': 'direct', 'tun': {'enable': False}})
-            # Existing explicit-proxy sockets otherwise continue using their old route.
-            self.request('DELETE', '/connections')
-            self.offline = True
-        elif online and self.restore is not None:
-            self.request('PATCH', '/configs', self.restore)
-            self.offline = False
-            self.restore = None
-
-
-def supervise(command, *, state_file=None, probe=network_available,
-              stop=None, interval=5, debounce=10, spawn=sp.Popen, switch=None):
+def supervise(command, runtime, *, state_file=None, probe=snapshot, underlay=check_underlay,
+              stop=None, events=None, watchdog=30, settle=3, disconnect=10, spawn=sp.Popen,
+              health=None):
     stop = stop if stop is not None else threading.Event()
     state_file = state_file or state_path()
-    gate = StableLink(debounce)
-    switch = switch if switch is not None else ProxySwitch()
+    events = events if events is not None else NetworkEvents()
     child, last, exit_code = None, None, 0
-    first = True
+    identity, cached_check, next_check, check_delay = '', 'checking', 0, 30
+    last_link_state = None
+    ready_gate, offline_gate = StableLink(settle), StableLink(disconnect)
+    last_sleep_gap = time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic() if hasattr(time, 'CLOCK_BOOTTIME') else 0
 
     def publish(phase, reason):
         nonlocal last
-        current = (phase, reason, child.pid if child else None)
+        current = (phase, reason, child.pid if child else None, identity, runtime.desired)
         if current == last:
             return
-        state_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        data = dict(phase=phase, reason=reason, core_pid=current[2], updated_at=time.time())
-        temporary = state_file.with_suffix('.tmp')
-        temporary.write_text(json.dumps(data) + '\n')
-        temporary.chmod(0o600)
-        temporary.replace(state_file)
+        private_json(state_file, dict(phase=phase, reason=reason, core_pid=current[2],
+                     network=identity, desired=runtime.desired, updated_at=time.time()))
         print(f'Mihomo network: {phase} ({reason})', flush=True)
         last = current
 
+    def standby():
+        if health:
+            health.pause()
+        runtime.standby()
+
     try:
-        child = spawn(command)  # The core and dashboard stay up even without Wi-Fi.
+        # command points at a standby config: no TUN or automatic probes at boot.
+        child = spawn(command)
+        threading.Thread(target=lambda: (child.wait(), events.changed.set()), daemon=True).start()
         while not stop.is_set():
-            online, reason = probe()
-            if stop.is_set():
-                break
-            ready = gate.update(online, time.monotonic())
-            if first and online is False:
-                gate.since -= debounce  # Offline boot must not wait another debounce window.
-                ready = False
-            first = False
-            if child is not None and child.poll() is not None:
-                code = child.returncode
-                child = None
-                publish('failed', f'core-exited-{code}')
+            wait = watchdog
+            if child.poll() is not None:
+                publish('failed', f'core-exited-{child.returncode}')
                 exit_code = 1
-                break  # Let systemd's restart policy handle crashes, including offline.
+                break
             try:
-                if ready is not None:
-                    switch.set_online(ready)
-                publish('offline-direct' if switch.offline else 'running', reason)
-            except (OSError, ValueError, KeyError) as error:
-                # A starting/unavailable API is retried without killing the core.
+                events.start()
+                link = probe()
+                if stop.is_set():
+                    break
+                now = time.monotonic()
+                sleep_gap = time.clock_gettime(time.CLOCK_BOOTTIME) - now if hasattr(time, 'CLOCK_BOOTTIME') else 0
+                resumed = events.resumed or sleep_gap - last_sleep_gap > 2
+                events.resumed = False
+                last_sleep_gap = sleep_gap
+                if resumed or (link.identity and identity != link.identity):
+                    standby()
+                    identity, cached_check, next_check, check_delay = link.identity, 'checking', 0, 30
+                    last_link_state = None
+                    ready_gate, offline_gate = StableLink(settle), StableLink(disconnect)
+                runtime.observe_manual()
+                if link.state == 'unknown':
+                    publish('online' if runtime.online else 'checking', 'networkmanager-unavailable')
+                elif link.state == 'offline':
+                    ready_gate.update(None, now)
+                    if not runtime.online or offline_gate.update(False, now) is False:
+                        standby()
+                        identity, cached_check, next_check = '', 'checking', 0
+                        publish('offline', 'no-physical-uplink')
+                    else:
+                        publish('checking', 'disconnect-grace')
+                        wait = min(watchdog, 1)
+                else:
+                    offline_gate.update(None, now)
+                    if link.state == 'portal' and last_link_state != 'portal':
+                        standby()
+                        ready_gate.update(None, now)
+                        cached_check, next_check, check_delay = 'portal', 0, 30
+                    verdict = link.state
+                    if verdict != 'ready' and not runtime.online:
+                        if now >= next_check:
+                            cached_check = underlay()  # TUN is disabled here.
+                            next_check = time.monotonic() + check_delay
+                            check_delay = 30 if cached_check == 'portal' else min(check_delay * 2, 120)
+                        verdict = cached_check
+                    if runtime.online:
+                        # A native HTTP success may precede NM's next cached portal
+                        # update. Do not bounce TUN until NM reports a new transition.
+                        # One blocked NM probe on an established network is not an outage.
+                        publish('online', 'ready' if verdict == 'ready' else 'connectivity-unconfirmed')
+                    elif verdict == 'ready':
+                        if ready_gate.update(True, now) is True:
+                            runtime.activate()
+                            publish('online', 'uplink-ready')
+                        else:
+                            publish('checking', 'uplink-settling')
+                            wait = min(watchdog, 1)
+                    else:
+                        ready_gate.update(None, now)
+                        publish('portal' if verdict == 'portal' else 'limited', 'awaiting-native-connectivity')
+                last_link_state = link.state
+                if health and runtime.online:
+                    health.schedule()
+            except (OSError, ValueError, KeyError, RuntimeError, sp.SubprocessError) as error:
+                # Startup and API failures remain recoverable, without a core restart loop.
                 publish('routing-pending', type(error).__name__)
-            stop.wait(interval)
+                wait = min(watchdog, 3)
+            events.wait(wait)
     finally:
+        if health:
+            health.close()
         stop_child(child)
+        events.close()
         child = None
         if not exit_code:
             publish('stopped', 'supervisor-stopped')
@@ -168,16 +169,25 @@ def status():
 
 
 def main():
+    import yaml
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', nargs=argparse.REMAINDER)
+    parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--core', required=True)
     args = parser.parse_args()
-    command = args.command[1:] if args.command[:1] == ['--'] else args.command
-    if not command:
-        parser.error('a Mihomo command is required after --')
-    stop = threading.Event()
+    config = yaml.safe_load(args.config.read_text())
+    runtime = Runtime(config, args.config.parent)
+    initial = args.config.with_name('standby.json')
+    private_json(initial, runtime.initial_config())
+    events, stop = NetworkEvents(), threading.Event()
+    def shutdown(*_):
+        stop.set()
+        events.changed.set()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stop.set())
-    return supervise(command, stop=stop)
+        signal.signal(sig, shutdown)
+    from mihomo_health import GroupHealth
+    health = GroupHealth(runtime.api, config, args.config.parent)
+    return supervise([args.core, '-d', str(args.config.parent), '-f', str(initial)],
+                     runtime, stop=stop, events=events, health=health)
 
 
 if __name__ == '__main__':

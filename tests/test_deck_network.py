@@ -33,12 +33,13 @@ class SteamContainerCompatibilityTests(unittest.TestCase):
 
     def test_hosts_login_and_updater_interception_are_reported(self):
         issues = self.issues(['Steam_API', 'steam_update', 'Steam_community', 'Steam_store'])
-        self.assertEqual(len(issues), 2)
+        self.assertEqual(len(issues), 4)
         self.assertIn('Steam_API', issues[0])
         self.assertIn('steam_update', issues[1])
 
-    def test_community_hosts_mode_remains_supported(self):
-        self.assertEqual(self.issues(['Steam_community', 'Steam_store']), [])
+    def test_disabled_hosts_mode_is_the_safe_standby_default(self):
+        self.assertEqual(len(self.issues(['Steam_community', 'Steam_store'])), 2)
+        self.assertEqual(self.issues(['Steam_community', 'Steam_store'], hosts=False), [])
         self.assertEqual(self.issues(['Steam_API'], hosts=False), [])
         self.assertEqual(self.issues(['Steam_API'], dns=True), [])
 
@@ -186,9 +187,11 @@ class DailyUpdateTests(unittest.TestCase):
         with mock.patch('mihomo_network.network_available', side_effect=[
                 (True, 'uplink-connected'), (False, 'no-physical-uplink')]), \
              mock.patch.object(mihomo, 'refresh_config', side_effect=self.changed_config), \
+             mock.patch('network_diagnostics.wait_ready') as healthy_standby, \
              mock.patch.object(mihomo.sp, 'run', return_value=mock.Mock(returncode=0)) as run:
             mihomo.daily_update(self.root)
         self.assertEqual(run.call_count, 2)  # Status and one restart, no recovery loop.
+        healthy_standby.assert_called_once()
         self.assertEqual((self.folder / 'config.yaml').read_bytes(), b'new config')
 
     def test_failed_restart_restores_both_files_and_recovers(self):
@@ -262,6 +265,27 @@ class UnifiedCommandTests(unittest.TestCase):
             self.assertFalse((root / 'bin/mihomo-deck').exists())
             self.assertFalse((root / 'bin/steamcommunity302').exists())
             self.assertFalse((root / 'bin/deck-network').exists())
+
+
+class ControllerReadinessTests(unittest.TestCase):
+    def test_standby_needs_real_api_and_online_accepts_intentionally_disabled_tun(self):
+        import network_diagnostics as diagnostics
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / 'state.json'
+            with mock.patch('mihomo_network.state_path', return_value=state), \
+                 mock.patch.object(diagnostics, 'API') as api, \
+                 mock.patch.object(Path, 'exists', return_value=False):
+                state.write_text(json.dumps({'phase': 'offline'}))
+                api.return_value.request.side_effect = OSError('not listening')
+                with self.assertRaises(OSError): diagnostics.controller_ready()
+                api.return_value.request.side_effect = None
+                api.return_value.request.return_value = {'mode': 'direct', 'tun': {'enable': False}}
+                self.assertTrue(diagnostics.controller_ready())
+                state.write_text(json.dumps({'phase': 'online', 'desired': {'mode': 'rule', 'tun': {'enable': False}}}))
+                api.return_value.request.return_value = {'mode': 'rule', 'tun': {'enable': False}}
+                self.assertTrue(diagnostics.controller_ready())
+                state.write_text(json.dumps({'phase': 'checking', 'reason': 'uplink-settling'}))
+                self.assertFalse(diagnostics.controller_ready())
 
 
 if __name__ == '__main__':

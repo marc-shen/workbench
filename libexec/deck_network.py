@@ -138,7 +138,7 @@ def tailscale_ip():
 
 
 def dashboard_url():
-    address = tailscale_ip()
+    address = '127.0.0.1'  # Local UI must not depend on the virtual network being online.
     return f'http://{address}:9090/ui/?hostname={address}&port=9090&http=true'
 
 
@@ -192,8 +192,8 @@ def sc302_compatibility_issues(config_path=Path('/var/lib/Steamcommunity_302/con
     """Catch TLS interception of Steam's client container during startup.
 
     The container has its own CA bundle: installing the 302 CA on SteamOS
-    does not make Steam's login API/updater trust it. Keep those two paths
-    on normal HTTPS, while leaving the user's community/other rules alone.
+    does not make Steam's embedded browser trust it. Normal operation leaves
+    302 disabled and uses end-to-end HTTPS for all Steam services.
     """
     if not config_path.exists():
         return []  # The service/client checks report an uninstalled backend.
@@ -209,7 +209,9 @@ def sc302_compatibility_issues(config_path=Path('/var/lib/Steamcommunity_302/con
             'Steam client containers do not inherit the system CA trust'
             for rule, label in (('Steam_API', 'Steam API'), ('steam_update', 'Steam client updates'),
                                 ('baishan2ali', 'also intercepts the client update CDN'),
-                                ('imgfix', 'also intercepts client-update.akamai.steamstatic.com'))
+                                ('imgfix', 'also intercepts client-update.akamai.steamstatic.com'),
+                                ('Steam_store', 'Steam store and login'), ('Steam_community', 'Steam community'),
+                                ('Steam_cloud_google', 'Steam cloud storage'))
             if rule in enabled]
 
 
@@ -218,7 +220,8 @@ def service_pending(root, service):
     def require(command, label):
         if sp.run(command, stdout=sp.DEVNULL, stderr=sp.DEVNULL).returncode:
             issues.append(label)
-    require(service_command(service) + ['is-active', '--quiet', service_unit(service)], service + ' service')
+    if service != 'sc302':
+        require(service_command(service) + ['is-active', '--quiet', service_unit(service)], service + ' service')
     if service == 'mihomo':
         require(['systemctl','--user','is-enabled','--quiet','mihomo'], 'Mihomo autostart')
         for action in ('is-active', 'is-enabled'):
@@ -232,14 +235,22 @@ def service_pending(root, service):
             issues.append('Mihomo 9090 firewall: workbench mihomo apply')
         if not (root / 'config/mihomo/config.yaml').exists(): issues.append('Local Clash subscription/configuration')
         if not Path('/var/lib/systemd/linger', pwd.getpwuid(os.getuid()).pw_name).exists(): issues.append('User linger')
+        from network_diagnostics import mihomo_issues
+        issues.extend(mihomo_issues())
     elif service == 'tailscale':
         if not Path('/opt/tailscale/tailscale').is_file(): issues.append('Tailscale executable')
         if not Path('/etc/atomic-update.conf.d/90-deck-tailscale-persistence.conf').exists():
             issues.append('Tailscale persistence: workbench tailscale apply')
+        from network_diagnostics import tailscale_issues
+        issues.extend(tailscale_issues())
     elif service == 'sc302':
         if not (root / 'apps/steamcommunity302/current/Steamcommunity302.AppImage').is_file():
             issues.append('302 client: workbench steamcommunity302 install')
         issues.extend(sc302_compatibility_issues())
+        if sp.run(['systemctl','is-enabled','--quiet',service_unit(service)],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode == 0:
+            issues.append('302 is a backup tool: disable autostart with workbench steamcommunity302 apply')
+        if any('#S302' in line for line in Path('/etc/hosts').read_text().splitlines()):
+            issues.append('302 still owns hosts entries; use workbench steamcommunity302 apply to return to standby')
     return issues
 
 
@@ -289,8 +300,7 @@ def dispatch(root, service, action):
             activate(root)
         elif service == 'tailscale': authorize(root)
         else:
-            print('Complete backend installation/certificate authorization in the official 302 window.', flush=True)
-            run([root / 'apps/steamcommunity302/current/Steamcommunity302.AppImage'])
+            run(['sudo','/usr/bin/python3',TEMPLATES/'baseline.py','--user',pwd.getpwuid(os.getuid()).pw_name,'--only-302'])
     elif action == 'update':
         if service == 'mihomo':
             from mihomo_deck import daily_update
@@ -310,7 +320,14 @@ def dispatch(root, service, action):
         if service == 'mihomo':
             from mihomo_network import status as network_status
             print(network_status())
+            recovery = load(root/'config/mihomo/group-recovery.json', {})
+            if isinstance(recovery, dict):
+                paused = [name for name, record in recovery.items() if isinstance(record, dict) and record.get('blocked')]
+                print('Groups waiting for recovery: ' + (', '.join(paused) if paused else 'none'))
             run(['systemctl','--user','list-timers','mihomo-subscription-update.timer','--no-pager'])
+        if service == 'sc302':
+            print('302 is optional; inactive is the normal standby state.')
+            return 0
         return sp.run(service_command(service) + ['is-active','--quiet',service_unit(service)]).returncode
     elif action == 'check':
         issues = service_pending(root, service)
@@ -352,8 +369,9 @@ def main(argv=None):
     preflight(services, args.action)
     # Network comes up before the proxy and goes down after it.
     if args.service == 'all':
-        services = ('tailscale', 'sc302', 'mihomo') if args.action in ('start', 'restart', 'activate') else SERVICES
-        if args.action == 'open': services = ('mihomo', 'tailscale', 'sc302')
+        services = ('tailscale', 'mihomo') if args.action in ('start', 'restart') else SERVICES
+        if args.action == 'activate': services = ('sc302', 'mihomo', 'tailscale')
+        if args.action == 'open': services = ('mihomo', 'tailscale')
     if args.action == 'prepare': deploy(root, services)
     result = 0
     for service in services:

@@ -1,6 +1,6 @@
 schema = 1
 name = "steamcommunity302"
-description = "steamcommunity302 网络服务"
+description = "Steamcommunity302 备用工具（默认停用）"
 category = "network"
 tags = ["service"]
 platforms = ["steamdeck"]
@@ -24,7 +24,7 @@ description = "补齐缺失项目，保留已有安装"
 description = "显式更新已选择的项目"
 
 [actions.apply]
-description = "首次授权、安装系统服务并启用"
+description = "停用自启并撤销 hosts 接管，恢复备用状态"
 
 [actions.start]
 description = "启动后台"

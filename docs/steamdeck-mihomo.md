@@ -4,8 +4,8 @@
 `components/mihomo/component.toml` 固定官方二进制、网页版本及 SHA256。
 规则前置 Tailscale、局域网和 302 直连；DNS 保留供应商设置并支持本机 hosts
 及 `.ts.net` MagicDNS。TUN 排除 Tailscale 接口和对应网段。
-302 hosts 模式需避开 Steam 客户端登录 API 和更新域名；具体冲突规则及验证方法见
-[游戏模式连接故障](steamdeck-network.md#游戏模式停在正在连接-steam)。系统 CA 信任不会自动传入 Steam 容器。
+302 保留安装、默认停用。Steam 使用原生 HTTPS，平台服务和游戏回退组分开；
+[完整网络路径与排查](steamdeck-network.md)。系统 CA 信任不会自动传入 Steam 容器。
 
 ## 安装与启用
 
@@ -13,7 +13,7 @@
 该文件、下载的 `provider.yaml` 和生成的 `config.yaml` 都在仓库外，不提交 Git。
 
 ```sh
-cd ~/Software/config/workbench
+cd ~/Software/src/workbench
 workbench mihomo install
 # 在 Deck 本机 Konsole 执行一次，输入 sudo 密码：
 workbench mihomo apply
@@ -23,7 +23,8 @@ workbench mihomo apply
 不会重启正在运行的代理服务。缺少 PyYAML 时用 uv 创建独立的 Python 辅助环境。
 `workbench mihomo apply` 设置核心 capabilities、只针对 `mihomo-tun` 的 resolved DNS 授权，
 以及只允许 loopback/Tailscale 接口访问 TCP 9090 的独立 nftables 规则。
-完成后启动 Mihomo 并检查控制接口及 TUN 网卡，然后启用开机自启。
+同时停用 302 的自启和 hosts/DNS 管理，修复系统 DNS 基线。
+完成后启动 Mihomo、检查控制接口与相应网络状态，再启用开机自启。
 
 启动后访问 `http://本机TailscaleIPv4:9090/ui/`，无需密码/API 密钥。
 推荐用 `workbench mihomo open` 或桌面的 Mihomo 入口打开，入口会自动带入正确的后端地址。
@@ -54,7 +55,7 @@ workbench system check steamdeck
 定时任务仅刷新订阅与覆盖配置，不升级核心或网页。下载或校验失败时保留旧配置；
 配置没有变化时不重启。配置变化且服务正在运行时重启并检查控制接口与 TUN，
 失败则恢复旧配置并尝试恢复服务；主动停止的服务不会被定时任务启动。
-没有物理网络或 NetworkManager 明确报告认证门户时跳过本次更新，保留订阅缓存。
+物理网络尚未确认可用时跳过本次更新，保留订阅缓存。
 
 ```sh
 # 下次执行时间
@@ -68,36 +69,57 @@ workbench mihomo logs
 Mihomo 是默认且唯一代理后端。新机器需先执行 `workbench mihomo install` / `workbench mihomo apply` 完成配置。
 更新更换 Mihomo 二进制后重新执行 `workbench mihomo apply`，恢复文件 capabilities。
 SteamOS 保持只读；防火墙及专用授权文件由 `/etc/atomic-update.conf.d` 保留。
-Tailscale 的登录、exit node 和 302 状态不更改。
+Tailscale 的登录和 exit node 偏好保留；`apply` 会把 302 恢复为默认停用的备用工具。
 
 节点切换通过核心 API 完成。专用 polkit 规则只授权指定用户对 `mihomo-tun`
 的 DNS 操作，没有授予任意 sudo 权限。
 
 ## 无网络时的行为
 
-`mihomo.service` 由 `libexec/mihomo_network.py` 管理核心进程，每 5 秒检查一次
-NetworkManager。没有已连接的 Wi-Fi、有线或移动网络持续约 10 秒后，通过 API
-关闭 TUN 并将运行模式切到 `direct`，释放系统流量/DNS 接管。核心进程一直保留，
-本机 `http://127.0.0.1:9090/ui/` 和控制接口仍可访问；离线开机也会启动核心。
-Tailscale、Mihomo 的虚拟网卡不算外网连接。有线底座仍可正常使用代理。
+`mihomo.service` 由 `libexec/mihomo_network.py` 管理核心。启动先加载 `standby.json`：
+`direct` 模式、TUN 关闭、自动测速组临时变为 `select`，provider 自动更新和健康检查暂停。
+保持组名和可选成员；正式配置仍在 `config.yaml`，网络恢复后通过核心 API 重载。
+这样离线启动也不会先触发一轮全节点检测，且不重启核心或控制台。
+网页手动测速仍会主动发起网络请求。
 
-物理连接稳定恢复约 10 秒后，恢复断网前的运行模式和 TUN 开关，保留策略组选择和
-限定范围的自动回退；原本手动关闭 TUN 时不会强行开启。自动操作只发生在网络状态转换时，
-不会反复覆盖网页操作。断网时清理旧代理连接，应用恢复后需要重新建立连接。
-没有切换 Wi-Fi 或停掉 Tailscale、302，也没有新增 root 常驻程序。
+NetworkManager / logind 事件加 30 秒复核驱动状态转换。物理网络断开约 10 秒后进入待机；
+认证门户、新 Wi-Fi 未确认可用或休眠恢复时先释放 TUN，允许系统 DNS 和认证页面正常工作。
+网络确认可用、稳定约 3 秒后恢复原运行模式和 TUN 偏好。具体状态与检测退避见
+[网络状态与恢复](steamdeck-network.md#网络状态与恢复)。
 
-所有策略组和代理集合使用 `lazy: true`：没有代理流量使用该组满一个检测间隔后，
-跳过后续定时节点检测。核心启动的一轮检测、已开始的检测或空闲前的最后一轮可能仍会执行；
-网页手动测速也仍可触发检测。这不是立即取消所有探测，但不会持续对空闲节点反复测速。
+在线时网页修改模式/TUN 会保存到私有 `network-intent.json`，断网不会永久覆盖成直连。
+待机期间变更过的选项也会记为联网后的意图，但自动保护仍保持 TUN 关闭；界面当前值与待恢复意图
+不一定相同。策略组选择由核心缓存保存。断网时清除旧代理连接，应用联网后需重新建立连接。
 
-NetworkManager 明确报告认证门户（`portal`）时同样关闭 TUN 并直连，便于登录 Wi-Fi。
-`limited`/`unknown` 或探测命令失败不会触发停用：国内网络可能阻断连通性检测站点。
-因此“Wi-Fi 已连接、但上游互联网不可用”不一定会切换直连，避免把局部封锁误判为断网。
+```sh
+workbench mihomo status   # online / offline / portal / limited / checking
+workbench mihomo open    # 本机 127.0.0.1:9090/ui/
+```
 
-用 `workbench mihomo status` 查看 `offline-direct` / `running`；离线访问网页应使用本机地址，
-远程 Tailscale 访问仍需要设备之间存在网络连接。
-`workbench mihomo stop` 会停止整个管理进程，之后网络恢复也不会擅自启动，
-需要执行 `workbench mihomo start`。订阅更新不会启动被手动停止的服务。
+没有新增 root 常驻进程，不停掉 Tailscale，不主动开关 Wi-Fi，也不唤醒休眠设备。
+健康状态正常时只复用核心已有结果；额外恢复探测仅在确认节点组全体失效后启用。
+`workbench mihomo stop` 则停止整个核心与管理进程，之后需要显式 `start`。
+
+## Steam 平台独立回退
+
+当前订阅的 `🎮 游戏平台` 保持原有范围，Steam 域名另由 `🎮 Steam平台` 控制，默认选择
+`🎮 Steam自动回退`。它从香港源组取最多 4 个节点，避免 Steam 平台服务牵动整个游戏组。
+本机可通过 `~/Software/config/mihomo/steam-platform.toml` 指定范围和优先节点：
+
+```toml
+schema = 1
+source = "🇭🇰 香港节点"
+max_nodes = 4
+# preferred = ["范围内节点甲", "范围内节点乙"]
+```
+
+`max_nodes` 可为 2–8；优先节点若被订阅移除，忽略并从同一源组补齐。
+当前集成识别供应商的 `🎮 游戏平台` 分类；源组必须是显式节点列表。
+订阅不含该分类时不自动添加 Steam 覆盖。有该分类但无香港源组时，需要在上述文件指定源组。
+此文件及节点名字仅保存在本机，订阅更新会重新合并，不写 Git。
+
+Steam 回退组每 180 秒按需检查 Steam API，超时 5 秒，要求 HTTP 200。
+国内 `steam@cn` 和网络连通性检测优先直连；其余 Steam 规则在供应商规则之前加入。
 
 ## 限定范围的自动回退
 
@@ -122,7 +144,7 @@ timeout = 8000
 组被代理流量使用时，每 180 秒对组内节点执行 Steam API 的 HTTPS HEAD 检查，8 秒超时，要求 HTTP 200。
 按列表顺序选择首个健康节点，优先节点恢复后，新连接可以重新使用它。已有 TCP/UDP
 连接不能无缝迁移，断线时应用仍可能需要重连；这个检查也不保证具体游戏 UDP 链路可用。
-所有节点都失败时，不会扩大到其他地区或自动直连，业务仍可能失败。
+所有节点都失败时，不扩大到其他地区或自动直连；下面的恢复器会暂停受影响的选择组。
 
 `preferred` 已不在最新供应商范围内时会被忽略；新节点按供应商顺序加入。
 目前支持源组的显式节点列表，不接受嵌套策略组、DIRECT 或动态 provider/filter
@@ -143,3 +165,25 @@ workbench mihomo open
 
 机制参考：[Mihomo fallback](https://wiki.metacubex.one/config/proxy-groups/fallback/)、
 [健康检查参数](https://wiki.metacubex.one/config/proxy-groups/)。
+
+
+## 节点全部失效时
+
+普通回退由 **Mihomo 核心的 fallback** 完成，MetaCubeXD 不负责切换。
+Workbench 的 `mihomo_health.py` 只补充全体失效后的暂停与恢复：
+
+1. 每 30 秒读取核心的已有健康记录。只有范围内每个节点都有新鲜、匹配检测 URL 的失败记录，
+   并在至少 30 秒后的下一次复核仍失败，才进入确认阶段；未知或过期记录不算失败。
+2. 再用组内最多两个节点检查另一 HTTPS 站点，避免只因 Steam 检测站故障而暂停整个组。
+3. 确认失败后，将引用该 fallback 的选择组临时置为 `REJECT`，清理该组的旧连接。
+   国内直连、Tailscale 和其他组继续运行。原 fallback 使用 lazy 检测，闲置后停止周期探测；
+   已开始的检测可能完成，并非逐包立即取消所有后台工作。
+4. 依次等待 60、120、300 秒，之后最多每 300 秒检查一次，每轮只检查原范围内最多三个节点。
+   同一节点连续两次成功、间隔至少 60 秒，才恢复原 fallback；不扩大地区范围。
+5. 手工改选其他策略时取消这次自动恢复。切换物理网络或断网会撤销临时 `REJECT`、暂停恢复探测，
+   等新网络可用后由核心重新检查。
+
+`group-recovery.json` 以 600 权限记录临时暂停和恢复意图，服务意外退出后可继续恢复。
+`workbench mihomo status` 显示正在等待恢复的组。该逻辑只作用于带 `REJECT` 选项且当前选择了
+显式 fallback 的选择组；直接手选单节点、动态 provider 或供应商其他类型的组不在此恢复器范围内。
+探测基于 HTTPS，不保证每个应用目标、每种 UDP 游戏都可用；已有会话仍可能需要重新连接。

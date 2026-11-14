@@ -14,6 +14,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'libexec'))
 import mihomo_network as network
+from mihomo_runtime import API, Runtime, private_json
+from network_link import Link
 
 
 def free_port():
@@ -41,8 +43,15 @@ class RealCoreTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         port, mixed = free_port(), free_port()
         url = f'http://127.0.0.1:{server.server_port}'
-        api = network.ProxySwitch(f'http://127.0.0.1:{port}')
-        online, children, stop = [True], [], threading.Event()
+        api = API(f'http://127.0.0.1:{port}')
+        online, children, stop = [False], [], threading.Event()
+        class Events:
+            changed = threading.Event()
+            resumed = False
+            def start(self): pass
+            def close(self): pass
+            def wait(self, timeout): self.changed.wait(timeout); self.changed.clear()
+        events = Events()
         def spawn(command):
             child = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             children.append(child)
@@ -71,23 +80,34 @@ class RealCoreTests(unittest.TestCase):
             config = {'mode': 'rule', 'log-level': 'silent', 'external-ui': str(folder/'ui'),
                 'external-controller': f'127.0.0.1:{port}', 'mixed-port': mixed,
                 'bind-address': '127.0.0.1', 'allow-lan': False, 'tun': {'enable': False},
+                'profile': {'store-selected': True},
                 'dns': {'enable': False}, 'proxies': [{'name': 'test-node', 'type': 'direct'}],
                 'proxy-groups': [{'name': 'test-fallback', 'type': 'fallback',
-                    'proxies': ['test-node'], 'url': url+'/health', 'interval': 1, 'lazy': True}],
-                'rules': ['MATCH,test-fallback']}
+                    'proxies': ['test-node'], 'url': url+'/health', 'interval': 1, 'lazy': True},
+                    {'name': 'test-wrapper', 'type': 'select', 'proxies': ['test-fallback', 'DIRECT', 'REJECT']}],
+                'rules': ['MATCH,test-wrapper']}
             (folder/'config.yaml').write_text(json.dumps(config))
+            runtime = Runtime(config, folder, api)
+            private_json(folder/'standby.json', runtime.initial_config())
             worker = threading.Thread(target=network.supervise, args=([
-                os.environ['MIHOMO_TEST_BINARY'], '-d', tmp],), kwargs={
-                'state_file': folder/'state.json', 'probe': lambda: (online[0], 'integration-test'),
-                'stop': stop, 'interval': .1, 'debounce': .1, 'spawn': spawn, 'switch': api})
+                os.environ['MIHOMO_TEST_BINARY'], '-d', tmp, '-f', str(folder/'standby.json')], runtime), kwargs={
+                'state_file': folder/'state.json', 'probe': lambda: Link('ready', 'test') if online[0] else Link('offline'),
+                'stop': stop, 'watchdog': .1, 'settle': .1, 'disconnect': .1, 'spawn': spawn, 'events': events})
             worker.start()
             try:
-                wait_for(lambda: api.request('GET', '/configs')['mode'] == 'rule')
+                wait_for(lambda: api.request('GET', '/configs')['mode'] == 'direct')
+                time.sleep(2.2)
+                self.assertNotIn('/health', hits, 'cold offline boot must not probe nodes')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback']['type'], 'Selector')
+                online[0] = True
+                events.changed.set()
+                wait_for(lambda: runtime.online)
                 traffic()
                 wait_for(lambda: '/health' in hits)
                 pid = children[0].pid
                 online[0] = False
-                wait_for(lambda: api.offline)
+                events.changed.set()
+                wait_for(lambda: not runtime.online)
                 self.assertEqual(api.request('GET', '/configs')['mode'], 'direct')
                 with api.opener.open(api.endpoint+'/ui/', timeout=3) as reply:
                     self.assertEqual(reply.read(), b'dashboard-test')
@@ -100,12 +120,16 @@ class RealCoreTests(unittest.TestCase):
                 self.assertEqual(children[0].pid, pid)
                 self.assertIsNone(children[0].poll())
                 online[0] = True
-                wait_for(lambda: not api.offline)
+                events.changed.set()
+                wait_for(lambda: runtime.online)
                 self.assertEqual(api.request('GET', '/configs')['mode'], 'rule')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-wrapper']['now'], 'test-fallback')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback']['type'], 'Fallback')
                 traffic()
                 wait_for(lambda: hits.count('/health') > before)
             finally:
                 stop.set()
+                events.changed.set()
                 worker.join(timeout=25)
             self.assertFalse(worker.is_alive())
             self.assertTrue(all(child.poll() is not None for child in children))
