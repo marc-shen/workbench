@@ -19,7 +19,7 @@ def compose(provider, root, address):
     if not isinstance(config, dict) or not config.get('rules') or not config.get('proxy-groups'):
         raise RuntimeError('Expected a complete Clash configuration with rules and proxy groups')
     # Preserve vendor routes and groups; opt-in local policies add scoped groups.
-    bypass = [f'PROCESS-NAME,{p},DIRECT' for p in ('tailscaled','tailscale','steamcommunity_302.cli','steamcommunity_302.caddy','caddy')]
+    bypass = [f'PROCESS-NAME,{p},DIRECT' for p in ('tailscaled','tailscale')]
     mirrors = read_toml(REPO / 'catalog/mirrors.toml')['proxy']
     bypass += [f'DOMAIN-SUFFIX,{domain},DIRECT' for domain in mirrors['direct_domains']]
     bypass += [f'DOMAIN-REGEX,{pattern},DIRECT' for pattern in mirrors.get('direct_regex', [])]

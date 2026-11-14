@@ -42,10 +42,9 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(result['proxies'], original['proxies'])
         self.assertEqual(result['dns']['nameserver'], original['dns']['nameserver'])
 
-    def test_tailscale_and_302_bypass_vendor_catchall(self):
+    def test_tailscale_bypasses_vendor_catchall(self):
         result = self.compose()
         self.assertIn('IP-CIDR,100.64.0.0/10,DIRECT,no-resolve', result['rules'][:-2])
-        self.assertIn('PROCESS-NAME,steamcommunity_302.caddy,DIRECT', result['rules'][:-2])
         self.assertIn('tailscale0', result['tun']['exclude-interface'])
         self.assertIn('100.64.0.0/10', result['tun']['route-exclude-address'])
         self.assertTrue(result['dns']['use-system-hosts'])
@@ -169,13 +168,10 @@ class DailyUpdateTests(unittest.TestCase):
 
 
 class UnifiedCommandTests(unittest.TestCase):
-    def test_shared_actions_and_official_302_gui_ownership(self):
+    def test_shared_actions_for_network_services(self):
         parser = network.build_parser()
         for target in ('all',) + network.SERVICES:
             for action in network.ACTIONS:
-                if target == 'sc302' and action in ('start', 'stop', 'restart'):
-                    self.assertNotIn(action, network.service_actions(target))
-                    continue
                 args = parser.parse_args([target, action])
                 self.assertEqual((args.service, args.action), (target, action))
 
@@ -206,7 +202,7 @@ class UnifiedCommandTests(unittest.TestCase):
         with mock.patch.object(network, 'is_steamdeck', return_value=True), \
              mock.patch.object(network.platform, 'machine', return_value='x86_64'), \
              mock.patch.object(network.os, 'geteuid', return_value=1000), \
-             mock.patch.object(network, 'dispatch', side_effect=[2, 0, 0]) as dispatch:
+             mock.patch.object(network, 'dispatch', side_effect=[2, 0]) as dispatch:
             self.assertEqual(network.main(['all', 'check']), 2)
         self.assertEqual([call.args[1] for call in dispatch.call_args_list], list(network.SERVICES))
 
@@ -220,17 +216,14 @@ class UnifiedCommandTests(unittest.TestCase):
                 mihomo.install_update_timer(root)
             desktop = Path(tmp) / '.local/share/applications'
             self.assertIn('workbench" mihomo open', (desktop / 'mihomo-web.desktop').read_text())
-            self.assertIn('workbench" steamcommunity302 open', (desktop / 'Steamcommunity_302.desktop').read_text())
             unit = Path(tmp) / '.config/systemd/user/mihomo-subscription-update.service'
             self.assertIn('workbench" mihomo update', unit.read_text())
-            self.assertFalse((root / 'config/network-launchers/steamcommunity302').exists())
-            for name in ('mihomo-deck', 'steamcommunity302', 'deck-network'):
+            for name in ('mihomo-deck', 'deck-network'):
                 p = root / 'bin' / name
                 p.parent.mkdir(exist_ok=True)
                 p.write_text('legacy')
             network.retire_legacy(root, network.SERVICES)
             self.assertFalse((root / 'bin/mihomo-deck').exists())
-            self.assertFalse((root / 'bin/steamcommunity302').exists())
             self.assertFalse((root / 'bin/deck-network').exists())
 
 
@@ -253,39 +246,6 @@ class ControllerReadinessTests(unittest.TestCase):
                 self.assertTrue(diagnostics.controller_ready())
                 state.write_text(json.dumps({'phase': 'checking', 'reason': 'uplink-settling'}))
                 self.assertFalse(diagnostics.controller_ready())
-
-
-class Official302OwnershipTests(unittest.TestCase):
-    def test_apply_delegates_to_the_official_gui(self):
-        with mock.patch.object(network, 'run') as run:
-            network.dispatch(Path('/test/Software'), 'sc302', 'activate')
-        run.assert_called_once_with([Path('/test/Software/apps/steamcommunity302/current/Steamcommunity302.AppImage')])
-
-    def test_direct_service_switches_never_stop_the_control_daemon(self):
-        with mock.patch.object(network, 'run') as run:
-            for action in ('start', 'stop', 'restart'):
-                with self.assertRaisesRegex(RuntimeError, 'official GUI'):
-                    network.dispatch(Path('/test/Software'), 'sc302', action)
-        run.assert_not_called()
-
-    def test_enabled_official_control_daemon_is_healthy(self):
-        with mock.patch.object(Path, 'is_file', return_value=True), \
-             mock.patch.object(network.sp, 'run', return_value=mock.Mock(returncode=0)) as run:
-            self.assertEqual(network.service_pending(Path('/test/Software'), 'sc302'), [])
-        self.assertEqual(run.call_args_list, [mock.call(
-            ['systemctl', 'is-active', '--quiet', network.service_unit('sc302')],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)])
-
-    def test_bulk_service_switches_leave_302_to_its_gui(self):
-        with mock.patch.object(network, 'is_steamdeck', return_value=True), \
-             mock.patch.object(network.platform, 'machine', return_value='x86_64'), \
-             mock.patch.object(network.os, 'geteuid', return_value=1000), \
-             mock.patch.object(network, 'preflight'), \
-             mock.patch.object(network, 'dispatch', return_value=0) as dispatch:
-            for action in ('start', 'stop', 'restart'):
-                dispatch.reset_mock()
-                self.assertEqual(network.main(['all', action]), 0)
-                self.assertEqual({call.args[1] for call in dispatch.call_args_list}, {'mihomo', 'tailscale'})
 
 
 if __name__ == '__main__':

@@ -4,11 +4,6 @@ platforms = ["steamdeck"]
 extends = ["workstation"]
 
 [[install]]
-component = "steamcommunity302"
-action = "install"
-args = []
-
-[[install]]
 component = "mihomo"
 action = "install"
 args = []
@@ -16,11 +11,6 @@ args = []
 [[install]]
 component = "tailscale"
 action = "install"
-args = []
-
-[[install]]
-component = "steamcommunity302"
-action = "apply"
 args = []
 
 [[install]]
@@ -34,22 +24,12 @@ action = "apply"
 args = []
 
 [[install]]
-component = "steamcommunity302"
-action = "check"
-args = []
-
-[[install]]
 component = "mihomo"
 action = "check"
 args = []
 
 [[install]]
 component = "tailscale"
-action = "check"
-args = []
-
-[[check]]
-component = "steamcommunity302"
 action = "check"
 args = []
 

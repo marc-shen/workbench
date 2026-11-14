@@ -17,7 +17,6 @@
 | 查看代理后台 | `workbench mihomo status` |
 | 更新代理订阅 | `workbench mihomo update` |
 | 更新 Tailscale（Deck 本机） | `workbench tailscale update` |
-| 打开 302 | `workbench steamcommunity302 open` |
 | 安装 GCC | `workbench gcc install` |
 | 安装 TeX Live | `workbench texlive install` |
 | 整机安装/检查 | `workbench system install` / `workbench system check` |

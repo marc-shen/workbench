@@ -14,7 +14,7 @@ cd ~/Software/src/workbench
 
 `install.sh` 补齐系统引导前提，准备 Python 3.12，再执行整机安装与检查。
 macOS 初次安装需要 Apple Command Line Tools 和 Homebrew 授权；Linux 的原生依赖可能需要 sudo。
-SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录、代理订阅与 302 授权由本机用户提供。
+SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录与代理订阅由本机用户提供。
 
 仅准备基础目录、Python 和安装后端：
 
@@ -50,7 +50,7 @@ workbench texlive install
 | terminal | WezTerm、Zsh、fzf、Starship、zoxide 与 Shell 插件 |
 | development | Python、Node、编译器、LSP、检查工具和可选 MCP 工具 |
 | editors | Emacs、Helix |
-| network | Mihomo（含 MetaCubeXD）、Tailscale、Steamcommunity 302 |
+| network | Mihomo（含 MetaCubeXD）、Tailscale |
 | latex | TeX Live |
 
 每个软件只有一个主分类，可拥有多个标签。分类用于显示与筛选，依赖直接指向组件。

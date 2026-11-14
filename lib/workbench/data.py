@@ -40,5 +40,4 @@ def plugin_sources(repo=REPO):
 
 def network_sources(repo=REPO):
     specs = install_specs('network', repo)
-    return {'steamcommunity302': specs['steamcommunity302']['source'],
-            'deck-tailscale': specs['tailscale']['source']}
+    return {'deck-tailscale': specs['tailscale']['source']}

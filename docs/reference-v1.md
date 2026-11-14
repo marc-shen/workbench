@@ -8,7 +8,7 @@
 
 配置通过 Git 同步；程序在每台机器上按平台安装。用户软件采用 `~/Software` 布局，以 `bin` 作为稳定命令入口，以 `apps/<名称>/<版本>` 容纳管理器、程序、编译器和复杂环境。Steam Deck 的安装保持在用户目录中，不解除 SteamOS 只读。
 
-Steam Deck 的 Mihomo／MetaCubeXD、Tailscale 与 Steamcommunity 302 安装入口
+Steam Deck 的 Mihomo／MetaCubeXD、Tailscale 安装入口
 也由 profile 管理：`workbench profile apply --only network`。
 本机管理员授权、Tailscale 登录和节点导入见 [Deck 网络配置](docs/steamdeck-network.md)。
 订阅、节点和私密凭据不保存到仓库。

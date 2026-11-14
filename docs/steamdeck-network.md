@@ -1,7 +1,6 @@
 # Steam Deck 网络
 
-日常由 Mihomo 接管需要代理的流量，使用原生 HTTPS；Steamcommunity 302 保留作为备用，
-由用户在官方 GUI 中决定网络服务和自启动状态，Workbench 不替用户切换。
+日常由 Mihomo 接管需要代理的流量，使用原生 HTTPS。网络组件仅包含 Mihomo 和 Tailscale。
 系统 DNS 由 NetworkManager、systemd-resolved 和 Tailscale 协作管理。SteamOS 保持只读，
 不修改 Steam 容器、证书库或客户端更新会覆盖的文件。
 
@@ -18,7 +17,6 @@ flowchart TD
     steam --> pool["Steam平台 → Steam自动回退 · 小型节点池"]
     tun --> games["其他游戏流量 → 原订阅规则 / 游戏平台"]
     games --> hk["原香港自动回退范围"]
-    backup["302：备用；服务由用户在官方 GUI 中控制"]
 ```
 
 | 内容 | 默认处理 |
@@ -30,7 +28,6 @@ flowchart TD
 | 游戏联机流量 | 按实际域名/IP 命中订阅；不按整个 Steam 进程强制代理 |
 | Tailscale、局域网、链路本地地址 | TUN 排除接口/网段，前置直连规则；MagicDNS 保留独立解析 |
 | 教育网联合镜像及成员站 | DIRECT |
-| 302 | 官方 GUI 管理网络服务、规则、hosts/DNS 和自启动；Workbench 不覆盖选择 |
 
 `steam@cn` 包含部分服务域名，并不等同于“所有下载”或“任何网络下都可直连”。
 HTTPS 健康检查也不能证明某个游戏的 UDP 链路可用。遇到个别目的地失败，应查看实际命中规则，
@@ -66,7 +63,6 @@ workbench mihomo status
 workbench mihomo open
 workbench mihomo check
 workbench tailscale check
-workbench steamcommunity302 check
 workbench system check steamdeck
 ```
 
@@ -75,35 +71,15 @@ Zsh 支持分层 Tab 补全。所有网络组件使用相同操作：
 | 操作 | 含义 |
 | --- | --- |
 | `install` | 安装固定版本客户端、菜单和配置；保留正在运行的服务 |
-| `apply` | 本机完成管理员授权；302 打开官方 GUI 进行后台安装或修复 |
-| `update` | Mihomo 刷新订阅；302 对齐固定客户端版本；Tailscale 用官方安装器更新稳定版 |
-| `start` / `stop` / `restart` | 操作 Mihomo / Tailscale 后台；302 使用官方 GUI 的服务按钮 |
+| `apply` | 本机完成管理员授权 |
+| `update` | Mihomo 刷新订阅；Tailscale 用官方安装器更新稳定版 |
+| `start` / `stop` / `restart` | 操作 Mihomo / Tailscale 后台 |
 | `status` / `check` / `logs` | 查看状态、检查运行条件、查看日志 |
 | `open` | 打开网页或客户端 |
 
 `workbench mihomo stop` 会停止核心及管理进程；网络恢复或订阅定时任务不会擅自启动它。
 Mihomo 的日常切换、重启和更新不需要 sudo。Tailscale 的更新、停止、重启需要在本机执行，
-以免切断用于管理它的 SSH；302 的后台安装由官方流程请求管理员授权。
-
-302 V15 的 **systemd 控制后台** 与 GUI 中的 **网络加速服务** 是两层。
-`s302-1000.service` 为 GUI 提供控制通道，直接禁用它会使 GUI 无法正常控制网络服务。
-不要用 `systemctl disable --now s302-1000` 来代替界面的“停止服务”。
-
-```sh
-workbench steamcommunity302 install  # 安装并校验官方 AppImage
-workbench steamcommunity302 apply    # 打开官方 GUI，安装或修复后台
-workbench steamcommunity302 open     # 日常从 GUI 管理
-workbench steamcommunity302 status   # 显示控制后台状态，非加速开关状态
-```
-
-用户自行在 GUI 的“服务 → 停止服务”以及启动设置中关闭不需要的自动运行。
-Workbench 不写 302 的配置、hosts 或自启状态，也不通过批量启停命令操作它的控制后台。
-`check` 检查官方客户端及控制后台可用性；控制后台运行不等于网络加速服务已开启。
-后台维护、重置安装和管理员授权均沿用[官方 V15 方案](https://www.dogfight360.com/blog/18682/)。
-
-从此前被 Workbench 禁用的状态恢复时，官方安装器可能在末尾报告 `systemctl is-enabled` 校验失败。
-如果后台已经运行且控制 socket 已恢复，在本机执行 `sudo systemctl enable s302-1000.service`
-补回控制后台的启用链接即可；此命令本身不启停当前加速服务。之后由 GUI 管理加速服务及启动偏好。
+以免切断用于管理它的 SSH。
 
 ## 重建与持久化
 
@@ -117,7 +93,7 @@ workbench mihomo apply
 ```
 
 新机器需在 `~/Software/config/mihomo/subscription.url` 写入自己的订阅并设置权限 600。
-`mihomo apply` 安装防火墙、TUN/DNS 授权和原生 DNS 基线，不操作 302；首次 Tailscale 登录仍需本人授权。
+`mihomo apply` 安装防火墙、TUN/DNS 授权和原生 DNS 基线；首次 Tailscale 登录仍需本人授权。
 迁移中若 Tailscale 还保留旧 DNS 管理器的告警，在本机执行一次
 `sudo systemctl restart tailscaled.service`，然后用 `workbench tailscale check` 核验。
 
@@ -127,8 +103,7 @@ NetworkManager 使用 systemd-resolved。Tailscale 管理 tailnet 的分域 DNS�
 
 Tailscale 使用 [deck-tailscale](https://github.com/tailscale-dev/deck-tailscale)。
 安装器在 `Software/apps/deck-tailscale/current`，程序在 `/opt/tailscale`，身份在 `/var/lib/tailscale`。
-旧 `~/deck-tailscale` 克隆不是运行依赖。302 客户端在 `Software/apps/steamcommunity302/current`，
-后台数据在 `/var/lib/Steamcommunity_302`；菜单保留一个 `Steamcommunity_302.desktop`。
+旧 `~/deck-tailscale` 克隆不是运行依赖。
 
 托管的 `/etc` 配置通过 `/etc/atomic-update.conf.d` 保留，systemd 启用状态由 SteamOS
 默认持久化清单保留。系统升级后运行各组件 `check`；这是持久化设计，不保证未来任意版本的
@@ -138,8 +113,7 @@ Tailscale 使用 [deck-tailscale](https://github.com/tailscale-dev/deck-tailscal
 
 先检查网络状态，再检查规则和 TLS。`workbench mihomo check` 对正在运行的 Steam / Steam WebHelper
 读取其实际容器 CA，并验证登录与社区 HTTPS，避免“系统 curl 成功但 Steam 不信任”的误判。
-未运行 Steam 时不会声称完成容器检查。302 是否接管 hosts 由官方 GUI 决定；
-若实际出现证书失败，再检查相应规则和 Steam 容器的信任状态。
+未运行 Steam 时不会声称完成容器检查。若实际出现证书失败，应检查 Steam 容器的信任状态。
 
 登录成功可查看 `~/.local/share/Steam/logs/steamui_login.txt` 的
 `SetLoginState: Success - OK`。无需关闭 TLS 验证，也无需挂载证书钩子。

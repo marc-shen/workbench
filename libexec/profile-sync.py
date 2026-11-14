@@ -184,7 +184,7 @@ def apply_unlocked(args, root):
     if args.plan:
         print('PLAN: repair links, deploy the Mac Dock bundle, write service definitions without restarting Emacs, verify links.')
         if 'network' in scopes:
-            print('PLAN: install Mihomo/MetaCubeXD and 302, prepare deck-tailscale; keep private data local.')
+            print('PLAN: install Mihomo/MetaCubeXD, prepare deck-tailscale; keep private data local.')
         print('Missing dependencies will ' + ('be installed.' if args.install_missing else 'be reported only.'))
         return 0
     attempt = {'started_at': datetime.datetime.now().astimezone().isoformat(timespec='microseconds'),
@@ -218,7 +218,7 @@ def apply_unlocked(args, root):
         if any(pending.values()):
             print('Configuration deployed; dependencies remain missing:', json.dumps(pending))
             if pending.get('network'):
-                print('Network: see docs/steamdeck-network.md; local sudo/login/302 GUI steps require completion on the Deck.')
+                print('Network: see docs/steamdeck-network.md; local sudo/login steps require completion on the Deck.')
             if any(names for group, names in pending.items() if group != 'network'):
                 print('Run workbench profile apply to install missing managed dependencies; missing native Emacs needs workbench emacs install runtime. For the full environment, use workbench system install.')
         print('Deployment log:', runner.path)
