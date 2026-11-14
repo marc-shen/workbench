@@ -89,7 +89,9 @@ class Runtime:
             private_json(self.intent, state)
 
     def load(self, config):
-        self.api.request('PUT', '/configs?force=true', {'payload': json.dumps(config)}, timeout=30)
+        # The controller parses payload as YAML: surrogate-pair JSON escapes for
+        # emoji group names are invalid YAML, so keep literal Unicode inside it.
+        self.api.request('PUT', '/configs?force=true', {'payload': json.dumps(config, ensure_ascii=False)}, timeout=30)
         self.expected = {'mode': config['mode'], 'tun': {'enable': config['tun']['enable']}}
         actual = self.current()
         if actual != self.expected:

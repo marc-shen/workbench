@@ -82,9 +82,9 @@ class RealCoreTests(unittest.TestCase):
                 'bind-address': '127.0.0.1', 'allow-lan': False, 'tun': {'enable': False},
                 'profile': {'store-selected': True},
                 'dns': {'enable': False}, 'proxies': [{'name': 'test-node', 'type': 'direct'}],
-                'proxy-groups': [{'name': 'test-fallback', 'type': 'fallback',
+                'proxy-groups': [{'name': 'test-fallback🎮', 'type': 'fallback',
                     'proxies': ['test-node'], 'url': url+'/health', 'interval': 1, 'lazy': True},
-                    {'name': 'test-wrapper', 'type': 'select', 'proxies': ['test-fallback', 'DIRECT', 'REJECT']}],
+                    {'name': 'test-wrapper', 'type': 'select', 'proxies': ['test-fallback🎮', 'DIRECT', 'REJECT']}],
                 'rules': ['MATCH,test-wrapper']}
             (folder/'config.yaml').write_text(json.dumps(config))
             runtime = Runtime(config, folder, api)
@@ -98,7 +98,7 @@ class RealCoreTests(unittest.TestCase):
                 wait_for(lambda: api.request('GET', '/configs')['mode'] == 'direct')
                 time.sleep(2.2)
                 self.assertNotIn('/health', hits, 'cold offline boot must not probe nodes')
-                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback']['type'], 'Selector')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback🎮']['type'], 'Selector')
                 online[0] = True
                 events.changed.set()
                 wait_for(lambda: runtime.online)
@@ -123,8 +123,8 @@ class RealCoreTests(unittest.TestCase):
                 events.changed.set()
                 wait_for(lambda: runtime.online)
                 self.assertEqual(api.request('GET', '/configs')['mode'], 'rule')
-                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-wrapper']['now'], 'test-fallback')
-                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback']['type'], 'Fallback')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-wrapper']['now'], 'test-fallback🎮')
+                self.assertEqual(api.request('GET', '/proxies')['proxies']['test-fallback🎮']['type'], 'Fallback')
                 traffic()
                 wait_for(lambda: hits.count('/health') > before)
             finally:
