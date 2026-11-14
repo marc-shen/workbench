@@ -240,8 +240,7 @@ def activate(root):
     from deck_network import tailscale_ip,write,load
     if os.environ.get('SSH_CONNECTION'):raise RuntimeError('Run activate in the local Deck Konsole')
     sp.run(['sudo','bash',REPO/'platforms/steamdeck/network/mihomo-privileged.sh',root,pwd.getpwuid(os.getuid()).pw_name],check=True)
-    sp.run(['sudo','/usr/bin/python3',REPO/'platforms/steamdeck/network/baseline.py',
-            '--user',pwd.getpwuid(os.getuid()).pw_name],check=True)
+    sp.run(['sudo','/usr/bin/python3',REPO/'platforms/steamdeck/network/baseline.py'],check=True)
     try:
         sp.run(['systemctl','--user','restart','mihomo'],check=True)
         from network_diagnostics import wait_ready

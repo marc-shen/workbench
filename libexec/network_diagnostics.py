@@ -35,8 +35,6 @@ def steam_tls_issues():
         try:
             if (process/'comm').read_text().strip() not in ('steam', 'steamwebhelper'):
                 continue
-            if '#S302' in (process/'root/etc/hosts').read_text():
-                issues.append('Steam container still has 302 hosts entries; restart Steam after returning 302 to standby')
             ca = process/'root/etc/ssl/certs/ca-certificates.crt'
             bundles.setdefault(hashlib.sha256(ca.read_bytes()).digest(), ca)
         except OSError:

@@ -1,5 +1,9 @@
 # Steam Deck 网络迁移验收（2026-11-14）
 
+此记录保留当时的验收结果。后续已纠正直接禁用 302 控制后台的做法：恢复官方安装，
+网络服务及自启动由用户在官方 GUI 中控制；Workbench 不再执行停用或改写。
+当前行为以 [网络说明](steamdeck-network.md) 为准。
+
 默认网络从“302 hosts 拦截 + Mihomo”改为“原生 HTTPS + Mihomo 分流”。
 302 保留安装，停止服务并禁用自启、hosts 自动修改和 DNS 接管。系统 `/etc/hosts` 及
 正在运行的 Steam / Steam WebHelper 容器中均没有残留的 `#S302` 条目。

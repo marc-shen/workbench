@@ -4,7 +4,7 @@
 `components/mihomo/component.toml` 固定官方二进制、网页版本及 SHA256。
 规则前置 Tailscale、局域网和 302 直连；DNS 保留供应商设置并支持本机 hosts
 及 `.ts.net` MagicDNS。TUN 排除 Tailscale 接口和对应网段。
-302 保留安装、默认停用。Steam 使用原生 HTTPS，平台服务和游戏回退组分开；
+302 保留安装，其网络服务及自启动由用户在官方 GUI 中管理。Steam 使用原生 HTTPS，平台服务和游戏回退组分开；
 [完整网络路径与排查](steamdeck-network.md)。系统 CA 信任不会自动传入 Steam 容器。
 
 ## 安装与启用
@@ -23,7 +23,7 @@ workbench mihomo apply
 不会重启正在运行的代理服务。缺少 PyYAML 时用 uv 创建独立的 Python 辅助环境。
 `workbench mihomo apply` 设置核心 capabilities、只针对 `mihomo-tun` 的 resolved DNS 授权，
 以及只允许 loopback/Tailscale 接口访问 TCP 9090 的独立 nftables 规则。
-同时停用 302 的自启和 hosts/DNS 管理，修复系统 DNS 基线。
+同时修复系统 DNS 基线，不修改 302 的服务或设置。
 完成后启动 Mihomo、检查控制接口与相应网络状态，再启用开机自启。
 
 启动后访问 `http://本机TailscaleIPv4:9090/ui/`，无需密码/API 密钥。
@@ -69,7 +69,7 @@ workbench mihomo logs
 Mihomo 是默认且唯一代理后端。新机器需先执行 `workbench mihomo install` / `workbench mihomo apply` 完成配置。
 更新更换 Mihomo 二进制后重新执行 `workbench mihomo apply`，恢复文件 capabilities。
 SteamOS 保持只读；防火墙及专用授权文件由 `/etc/atomic-update.conf.d` 保留。
-Tailscale 的登录和 exit node 偏好保留；`apply` 会把 302 恢复为默认停用的备用工具。
+Tailscale 的登录和 exit node 偏好保留；302 的开关、hosts/DNS 及自启动偏好由官方 GUI 管理。
 
 节点切换通过核心 API 完成。专用 polkit 规则只授权指定用户对 `mihomo-tun`
 的 DNS 操作，没有授予任意 sudo 权限。

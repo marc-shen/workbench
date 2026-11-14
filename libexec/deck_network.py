@@ -188,33 +188,6 @@ def service_unit(service):
             'sc302': f's302-{os.getuid()}.service'}[service]
 
 
-def sc302_compatibility_issues(config_path=Path('/var/lib/Steamcommunity_302/config.json')):
-    """Catch TLS interception of Steam's client container during startup.
-
-    The container has its own CA bundle: installing the 302 CA on SteamOS
-    does not make Steam's embedded browser trust it. Normal operation leaves
-    302 disabled and uses end-to-end HTTPS for all Steam services.
-    """
-    if not config_path.exists():
-        return []  # The service/client checks report an uninstalled backend.
-    try:
-        settings = json.loads(config_path.read_text())['settings']
-        hosts_mode = settings.get('hosts', {}).get('autoModify', False) and not settings.get('dns', {}).get('enabled', False)
-        enabled = settings.get('rules', {}).get('enabled', [])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return ['302 compatibility: cannot read backend settings']
-    if not hosts_mode:
-        return []
-    return [f'302 hosts TLS conflict: disable {rule} ({label}) in workbench steamcommunity302 open; '
-            'Steam client containers do not inherit the system CA trust'
-            for rule, label in (('Steam_API', 'Steam API'), ('steam_update', 'Steam client updates'),
-                                ('baishan2ali', 'also intercepts the client update CDN'),
-                                ('imgfix', 'also intercepts client-update.akamai.steamstatic.com'),
-                                ('Steam_store', 'Steam store and login'), ('Steam_community', 'Steam community'),
-                                ('Steam_cloud_google', 'Steam cloud storage'))
-            if rule in enabled]
-
-
 def service_pending(root, service):
     issues = []
     def require(command, label):
@@ -246,11 +219,10 @@ def service_pending(root, service):
     elif service == 'sc302':
         if not (root / 'apps/steamcommunity302/current/Steamcommunity302.AppImage').is_file():
             issues.append('302 client: workbench steamcommunity302 install')
-        issues.extend(sc302_compatibility_issues())
-        if sp.run(['systemctl','is-enabled','--quiet',service_unit(service)],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode == 0:
-            issues.append('302 is a backup tool: disable autostart with workbench steamcommunity302 apply')
-        if any('#S302' in line for line in Path('/etc/hosts').read_text().splitlines()):
-            issues.append('302 still owns hosts entries; use workbench steamcommunity302 apply to return to standby')
+        # This is the official control daemon, not the network service's on/off
+        # switch. Disabling it also disables ordinary GUI control.
+        require(service_command(service) + ['is-active', '--quiet', service_unit(service)],
+                '302 official control daemon: repair installation in workbench steamcommunity302 open')
     return issues
 
 
@@ -300,7 +272,8 @@ def dispatch(root, service, action):
             activate(root)
         elif service == 'tailscale': authorize(root)
         else:
-            run(['sudo','/usr/bin/python3',TEMPLATES/'baseline.py','--user',pwd.getpwuid(os.getuid()).pw_name,'--only-302'])
+            print('Use the official 302 GUI to install/repair its backend and manage service preferences.', flush=True)
+            run([root / 'apps/steamcommunity302/current/Steamcommunity302.AppImage'])
     elif action == 'update':
         if service == 'mihomo':
             from mihomo_deck import daily_update
@@ -313,6 +286,8 @@ def dispatch(root, service, action):
             version = network_sources(REPO)['steamcommunity302']['version']
             print('302 client matches profile version ' + version + '. Backend upgrades are managed by the official GUI: workbench steamcommunity302 open')
     elif action in ('start', 'stop', 'restart'):
+        if service == 'sc302':
+            raise RuntimeError('302 service switches are managed in its official GUI: workbench steamcommunity302 open')
         command = service_command(service) + [action, service_unit(service)]
         run((['sudo'] if service != 'mihomo' else []) + command)
     elif action == 'status':
@@ -326,8 +301,7 @@ def dispatch(root, service, action):
                 print('Groups waiting for recovery: ' + (', '.join(paused) if paused else 'none'))
             run(['systemctl','--user','list-timers','mihomo-subscription-update.timer','--no-pager'])
         if service == 'sc302':
-            print('302 is optional; inactive is the normal standby state.')
-            return 0
+            print('This is the official control daemon. Manage the network service and autostart in the 302 GUI.')
         return sp.run(service_command(service) + ['is-active','--quiet',service_unit(service)]).returncode
     elif action == 'check':
         issues = service_pending(root, service)
@@ -370,6 +344,7 @@ def main(argv=None):
     # Network comes up before the proxy and goes down after it.
     if args.service == 'all':
         services = ('tailscale', 'mihomo') if args.action in ('start', 'restart') else SERVICES
+        if args.action == 'stop': services = ('mihomo', 'tailscale')
         if args.action == 'activate': services = ('sc302', 'mihomo', 'tailscale')
         if args.action == 'open': services = ('mihomo', 'tailscale')
     if args.action == 'prepare': deploy(root, services)

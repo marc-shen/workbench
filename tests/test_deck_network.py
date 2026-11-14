@@ -21,42 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'libexec'))
 import deck_network as network
 
 
-class SteamContainerCompatibilityTests(unittest.TestCase):
-    def issues(self, enabled, hosts=True, dns=False):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'config.json'
-            path.write_text(json.dumps({'settings': {
-                'rules': {'enabled': enabled}, 'hosts': {'autoModify': hosts},
-                'dns': {'enabled': dns},
-            }}))
-            return network.sc302_compatibility_issues(path)
-
-    def test_hosts_login_and_updater_interception_are_reported(self):
-        issues = self.issues(['Steam_API', 'steam_update', 'Steam_community', 'Steam_store'])
-        self.assertEqual(len(issues), 4)
-        self.assertIn('Steam_API', issues[0])
-        self.assertIn('steam_update', issues[1])
-
-    def test_disabled_hosts_mode_is_the_safe_standby_default(self):
-        self.assertEqual(len(self.issues(['Steam_community', 'Steam_store'])), 2)
-        self.assertEqual(self.issues(['Steam_community', 'Steam_store'], hosts=False), [])
-        self.assertEqual(self.issues(['Steam_API'], hosts=False), [])
-        self.assertEqual(self.issues(['Steam_API'], dns=True), [])
-
-    def test_overlapping_rules_cannot_hide_updater_interception(self):
-        issues = self.issues(['baishan2ali', 'imgfix', 'imgfix_fastly'])
-        self.assertEqual(len(issues), 2)
-        self.assertIn('baishan2ali', issues[0])
-        self.assertIn('imgfix', issues[1])
-
-    def test_unreadable_settings_are_not_reported_as_healthy(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'config.json'
-            self.assertEqual(network.sc302_compatibility_issues(path), [])
-            path.write_text('{')
-            self.assertIn('cannot read', network.sc302_compatibility_issues(path)[0])
-
-
 class ComposeTests(unittest.TestCase):
     def setUp(self):
         self.provider = {
@@ -286,6 +250,39 @@ class ControllerReadinessTests(unittest.TestCase):
                 self.assertTrue(diagnostics.controller_ready())
                 state.write_text(json.dumps({'phase': 'checking', 'reason': 'uplink-settling'}))
                 self.assertFalse(diagnostics.controller_ready())
+
+
+class Official302OwnershipTests(unittest.TestCase):
+    def test_apply_delegates_to_the_official_gui(self):
+        with mock.patch.object(network, 'run') as run:
+            network.dispatch(Path('/test/Software'), 'sc302', 'activate')
+        run.assert_called_once_with([Path('/test/Software/apps/steamcommunity302/current/Steamcommunity302.AppImage')])
+
+    def test_direct_service_switches_never_stop_the_control_daemon(self):
+        with mock.patch.object(network, 'run') as run:
+            for action in ('start', 'stop', 'restart'):
+                with self.assertRaisesRegex(RuntimeError, 'official GUI'):
+                    network.dispatch(Path('/test/Software'), 'sc302', action)
+        run.assert_not_called()
+
+    def test_enabled_official_control_daemon_is_healthy(self):
+        with mock.patch.object(Path, 'is_file', return_value=True), \
+             mock.patch.object(network.sp, 'run', return_value=mock.Mock(returncode=0)) as run:
+            self.assertEqual(network.service_pending(Path('/test/Software'), 'sc302'), [])
+        self.assertEqual(run.call_args_list, [mock.call(
+            ['systemctl', 'is-active', '--quiet', network.service_unit('sc302')],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)])
+
+    def test_bulk_service_switches_leave_302_to_its_gui(self):
+        with mock.patch.object(network, 'is_steamdeck', return_value=True), \
+             mock.patch.object(network.platform, 'machine', return_value='x86_64'), \
+             mock.patch.object(network.os, 'geteuid', return_value=1000), \
+             mock.patch.object(network, 'preflight'), \
+             mock.patch.object(network, 'dispatch', return_value=0) as dispatch:
+            for action in ('start', 'stop', 'restart'):
+                dispatch.reset_mock()
+                self.assertEqual(network.main(['all', action]), 0)
+                self.assertEqual({call.args[1] for call in dispatch.call_args_list}, {'mihomo', 'tailscale'})
 
 
 if __name__ == '__main__':
