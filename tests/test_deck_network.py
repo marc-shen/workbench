@@ -169,10 +169,13 @@ class DailyUpdateTests(unittest.TestCase):
 
 
 class UnifiedCommandTests(unittest.TestCase):
-    def test_same_actions_for_every_target(self):
+    def test_shared_actions_and_official_302_gui_ownership(self):
         parser = network.build_parser()
         for target in ('all',) + network.SERVICES:
             for action in network.ACTIONS:
+                if target == 'sc302' and action in ('start', 'stop', 'restart'):
+                    self.assertNotIn(action, network.service_actions(target))
+                    continue
                 args = parser.parse_args([target, action])
                 self.assertEqual((args.service, args.action), (target, action))
 

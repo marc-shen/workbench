@@ -22,6 +22,10 @@ ACTIONS = ('prepare', 'activate', 'update', 'start', 'stop', 'restart', 'status'
 CAPS = ('cap_net_admin', 'cap_net_raw', 'cap_net_bind_service', 'cap_sys_ptrace', 'cap_dac_read_search')
 
 
+def service_actions(service):
+    return tuple(a for a in ACTIONS if service != 'sc302' or a not in ('start', 'stop', 'restart'))
+
+
 def is_steamdeck():
     p = Path('/etc/os-release')
     return p.exists() and any(line.startswith('ID=') and line.split('=', 1)[1].strip('"\'') == 'steamos'
@@ -326,7 +330,7 @@ def build_parser():
     sub.add_parser('list', help='List services and supported actions without changing anything')
     for service in ('all',) + SERVICES:
         command = sub.add_parser(service, help='All network services' if service == 'all' else service + ' management')
-        command.add_argument('action', choices=ACTIONS, help='Same action names for every service')
+        command.add_argument('action', choices=service_actions(service), help='Supported actions; 302 service switches stay in its official GUI')
     return parser
 
 
@@ -334,7 +338,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.service == 'list':
         for service in SERVICES:
-            print(service + ': ' + ' '.join({'prepare': 'install', 'activate': 'apply'}.get(a, a) for a in ACTIONS))
+            print(service + ': ' + ' '.join({'prepare': 'install', 'activate': 'apply'}.get(a, a) for a in service_actions(service)))
         return 0
     if not is_steamdeck() or platform.machine() != 'x86_64' or os.geteuid() == 0:
         raise RuntimeError('Run as the regular user on an x86_64 Steam Deck')

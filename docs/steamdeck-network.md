@@ -101,6 +101,10 @@ Workbench 不写 302 的配置、hosts 或自启状态，也不通过批量启�
 `check` 检查官方客户端及控制后台可用性；控制后台运行不等于网络加速服务已开启。
 后台维护、重置安装和管理员授权均沿用[官方 V15 方案](https://www.dogfight360.com/blog/18682/)。
 
+从此前被 Workbench 禁用的状态恢复时，官方安装器可能在末尾报告 `systemctl is-enabled` 校验失败。
+如果后台已经运行且控制 socket 已恢复，在本机执行 `sudo systemctl enable s302-1000.service`
+补回控制后台的启用链接即可；此命令本身不启停当前加速服务。之后由 GUI 管理加速服务及启动偏好。
+
 ## 重建与持久化
 
 项目位于 `~/Software/src/workbench`；订阅、策略偏好和运行数据在仓库外。
