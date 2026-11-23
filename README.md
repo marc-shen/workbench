@@ -74,8 +74,9 @@ workbench system check
 workbench system update            # 更新整机方案；Linux 可能重新编译 Emacs
 ```
 
-方案：`base`（命令行）、`workstation`（完整工作站）、`steamdeck`（增加网络）、
+方案：`base`（命令行）、`workstation`（完整工作站）、`macos` / `steamdeck`（增加平台网络客户端）、
 `scientific`（Linux 科研环境，增加 GCC 和 TeX Live）。默认依据主机选择。
+Mac 网络部署见 [macOS 网络客户端](docs/macos-network.md)。
 
 终端自动配色并按中英文宽度对齐；`<参数>` 必填、`[参数]` 可选。
 管道、重定向、`NO_COLOR` 和 `TERM=dumb` 禁用配色；JSON 与补全数据始终无颜色。

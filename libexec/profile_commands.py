@@ -14,7 +14,7 @@ if simple:
 p.add_argument('--scope',choices=['user','system'],default='user',help=argparse.SUPPRESS if simple else 'Installation scope')
 p.add_argument('--prefix',type=Path,help=argparse.SUPPRESS if simple else 'Software installation directory')
 p.add_argument('--dry-run',action='store_true',help=argparse.SUPPRESS)
-p.add_argument('--only',choices=['all','shell','emacs','helix','network'],default='all',help='Deploy only this configuration group (network: Steam Deck only; default: all)')
+p.add_argument('--only',choices=['all','shell','emacs','helix','network'],default='all',help='Deploy only this configuration group (network: macOS / Steam Deck; default: all)')
 p.add_argument('--reinstall',action='store_true',help=argparse.SUPPRESS if simple else 'Reinstall Pixi tools during install/update')
 p.add_argument('--plan',action='store_true',help='Preview without network or writes')
 p.add_argument('--config-only',dest='install_missing',action='store_false',help='Deploy configuration only; skip dependency installation and LSP probes')
@@ -22,7 +22,7 @@ p.set_defaults(install_missing=True)
 a=p.parse_args();root=(a.prefix or Path('/opt/Software' if a.scope=='system' else os.environ.get('SOFTWARE_HOME',str(Path.home()/'Software')))).expanduser().absolute()
 os.environ['SOFTWARE_HOME']=str(root)
 if a.action=='list':
- for name, description in [('shell','Shell, terminal and CLI configuration'),('emacs','Emacs configuration and service'),('helix','Helix configuration'),('network','Steam Deck network services (SteamOS only)')]:
+ for name, description in [('shell','Shell, terminal and CLI configuration'),('emacs','Emacs configuration and service'),('helix','Helix configuration'),('network','Mihomo and Tailscale (macOS / Steam Deck)')]:
   print(name + ': ' + description)
  sys.exit(0)
 def run(args):sp.run(list(map(str,args)),check=True)
@@ -35,7 +35,7 @@ if a.action in ['apply','update','install']:
  os.execv(sys.executable,command)
 if a.plan:a.dry_run=True
 if a.only=='network' and a.action not in ['apply','update']:
- sys.exit('Use workbench profile apply --only network; networking is a Steam Deck deployment scope.')
+ sys.exit('Use workbench profile apply --only network; networking supports macOS and Steam Deck.')
 if a.action=='plan' or a.dry_run:
  print('Platform:',platform.system(),platform.machine());print('Scope:',a.scope,'Prefix:',root)
  print('System Git; upstream Pixi/uv; isolated Pixi CLI tools; upstream Git Zsh plugins.')

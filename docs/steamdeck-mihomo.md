@@ -187,3 +187,17 @@ Workbench 的 `mihomo_health.py` 只补充全体失效后的暂停与恢复：
 `workbench mihomo status` 显示正在等待恢复的组。该逻辑只作用于带 `REJECT` 选项且当前选择了
 显式 fallback 的选择组；直接手选单节点、动态 provider 或供应商其他类型的组不在此恢复器范围内。
 探测基于 HTTPS，不保证每个应用目标、每种 UDP 游戏都可用；已有会话仍可能需要重新连接。
+
+
+## 多个订阅
+
+`~/Software/config/mihomo/subscription.url` 支持每行一个订阅 URL，第一行有效 URL 提供主规则，
+后续完整来源同时导入节点、策略组和规则（仅节点 YAML 也可用）。空行、整行 `#` 注释和重复 URL 会被忽略。
+运行 `workbench mihomo update` 统一更新；网页的提供者更新只重载本地快照。
+主订阅的 Steam / 游戏地区回退范围不会因为新增订阅而扩大。
+
+规则按 URL 顺序匹配，各源内部顺序不变；仅保留第一源最后的 MATCH 作为总兜底。
+内置 Tailscale/局域网/Steam 保护优先，其后是 `config/mihomo/overrides.yaml` 的
+`prepend-rules`，再后是订阅规则。网页中的 `workbench-global-override-*` 和
+`workbench-subscription-*` 为随主配置更新的 inline 规则提供者。额外来源的组名加前缀。
+额外来源的动态代理提供者、本地规则文件和 sub-rules 暂不自动合并，遇到时保留旧配置。

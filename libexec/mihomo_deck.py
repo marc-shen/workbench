@@ -14,10 +14,21 @@ from config_data import read as read_toml
 REPO = Path(__file__).resolve().parents[1]
 
 
-def compose(provider, root, address):
+def compose(provider, root, address, *, steam=True, overrides=None):
     config = copy.deepcopy(provider)
     if not isinstance(config, dict) or not config.get('rules') or not config.get('proxy-groups'):
         raise RuntimeError('Expected a complete Clash configuration with rules and proxy groups')
+    if overrides is None:
+        import yaml
+        path=root/'config/mihomo/overrides.yaml'
+        overrides=yaml.safe_load(path.read_text()) if path.exists() else {}
+    overrides=overrides or {}
+    config['rules']=overrides.get('prepend-rules',[])+config['rules']
+    for group in overrides.get('proxy-groups',[]):
+        config['proxy-groups']=[g for g in config['proxy-groups'] if g['name']!=group['name']]
+        config['proxy-groups'].append(copy.deepcopy(group))
+    for key in ('dns','ipv6'):
+        if key in overrides:config[key]=copy.deepcopy(overrides[key])
     # Preserve vendor routes and groups; opt-in local policies add scoped groups.
     bypass = [f'PROCESS-NAME,{p},DIRECT' for p in ('tailscaled','tailscale')]
     mirrors = read_toml(REPO / 'catalog/mirrors.toml')['proxy']
@@ -31,7 +42,7 @@ def compose(provider, root, address):
                'IP-CIDR6,::1/128,DIRECT,no-resolve','IP-CIDR6,fc00::/7,DIRECT,no-resolve',
                'IP-CIDR6,fe80::/10,DIRECT,no-resolve','IP-CIDR6,ff00::/8,DIRECT,no-resolve']
     from steam_routing import configure as configure_steam
-    config['rules'] = bypass + configure_steam(config, root) + config['rules']
+    config['rules'] = bypass + (configure_steam(config, root) if steam else []) + config['rules']
     for key in ('external-controller-tls','external-controller-unix','external-controller-pipe','external-ui-url','listeners','redir-port','tproxy-port','port','socks-port'):
         config.pop(key, None)
     config.update({'mixed-port':2080,'allow-lan':False,'bind-address':'127.0.0.1','mode':'rule',
@@ -93,33 +104,29 @@ def refresh_config(root, refresh=False):
     import yaml
     from deck_network import write, tailscale_ip
     folder=root/'config/mihomo'
-    data=None
-    if refresh or not (folder/'provider.yaml').exists():
-        url=(folder/'subscription.url').read_text().strip()
-        try:
-            request=urllib.request.Request(url,headers={'User-Agent':'clash.meta'})
-            with urllib.request.urlopen(request,timeout=60) as reply:data=reply.read().decode()
-            provider=yaml.safe_load(data)
-            compose(provider,root,tailscale_ip())
-        except Exception as error:
-            raise RuntimeError('Subscription fetch/validation failed; old configuration retained ('+type(error).__name__+')') from None
-    else:
-        provider=yaml.safe_load((folder/'provider.yaml').read_text())
-    config=compose(provider,root,tailscale_ip())
+    from mihomo_subscriptions import load, attach, save
+    records=load(folder,refresh=refresh)
+    provider=records[0]['document']
+    config=attach(compose(provider,root,tailscale_ip()),records,folder)
     candidate=folder/'candidate.yaml';write(candidate,yaml.safe_dump(config,allow_unicode=True,sort_keys=False),0o600)
     from mihomo_runtime import standby_config, private_json
     standby=folder/'standby-candidate.json'
     private_json(standby, standby_config(config, folder))
+    from mihomo_rules import expanded
+    expanded_path=folder/'expanded-candidate.json'
+    private_json(expanded_path,expanded(config))
     env=dict(os.environ,SAFE_PATHS=str(root/'apps'))
     with (folder/'validation.log').open('w') as log:
-        for variant in (candidate, standby):
+        for variant in (expanded_path, candidate, standby):
             result=sp.run([root/'apps/mihomo/current/mihomo','-t','-d',folder,'-f',variant],env=env,stdout=log,stderr=sp.STDOUT,timeout=120)
             if result.returncode:raise RuntimeError('Mihomo validation failed; old configuration retained; see local config/mihomo/validation.log')
     standby.unlink()
+    expanded_path.unlink()
     target=folder/'config.yaml'
     changed=not target.exists() or target.read_bytes()!=candidate.read_bytes()
     candidate.replace(target)
-    if data is not None:write(folder/'provider.yaml',data,0o600)
+    write(folder/'provider.yaml',yaml.safe_dump(provider,allow_unicode=True,sort_keys=False),0o600)
+    save(folder,records)
     print('Prepared:',len(provider.get('proxies',[])),'nodes,',len(provider['proxy-groups']),'vendor groups,',len(provider['rules']),'vendor rules')
     return changed
 
@@ -159,7 +166,7 @@ def daily_update(root):
     os.umask(0o077)
     folder=root/'config/mihomo'
     previous={name:(folder/name).read_bytes() if (folder/name).exists() else None
-              for name in ('config.yaml','provider.yaml')}
+              for name in ('config.yaml','provider.yaml','subscriptions.json')}
     active=sp.run(['systemctl','--user','is-active','--quiet','mihomo']).returncode==0
     try:
         changed=refresh_config(root,True)

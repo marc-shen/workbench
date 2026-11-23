@@ -92,7 +92,14 @@ workbench mihomo install
 workbench mihomo apply
 ```
 
-新机器需在 `~/Software/config/mihomo/subscription.url` 写入自己的订阅并设置权限 600。
+新机器需在 `~/Software/config/mihomo/subscription.url` 写入订阅并设置权限 600。
+文件支持每行一个 HTTP(S) URL、空行和整行 `#` 注释，重复 URL 只导入一次。
+第一个必须提供完整 Clash YAML（节点、策略组和规则）；后续只提取 Clash YAML 中的节点。
+各源生成本地文件代理提供者，可通过 `📚 全部订阅` → `📦 订阅 N` 选择额外来源。
+主订阅的地区组和 Steam 自动回退范围保持不变，多个源的规则不会混合。
+编辑后运行 `workbench mihomo update`；任一源失败则保留整套旧配置。
+网页可查看、测速和重载本地提供者；远程拉取仍由 Workbench / 每日更新任务负责。
+详见 [多订阅格式与更新方式](macos-network.md#部署与入口)。
 `mihomo apply` 安装防火墙、TUN/DNS 授权和原生 DNS 基线；首次 Tailscale 登录仍需本人授权。
 迁移中若 Tailscale 还保留旧 DNS 管理器的告警，在本机执行一次
 `sudo systemctl restart tailscaled.service`，然后用 `workbench tailscale check` 核验。

@@ -3,7 +3,7 @@ name = "tailscale"
 description = "tailscale 网络服务"
 category = "network"
 tags = ["service"]
-platforms = ["steamdeck"]
+platforms = ["macos", "steamdeck"]
 requires = []
 entrypoint = ["{python}", "{repo}/libexec/component.py", "tailscale"]
 arguments = ""
@@ -52,3 +52,8 @@ service = "tailscale"
 [install.source]
 repository = "https://github.com/tailscale-dev/deck-tailscale.git"
 revision = "4691bb20d492ae9b2f5121c3eaf6e2dc1950e73f"
+
+[install.macos]
+metadata = "https://pkgs.tailscale.com/stable/?mode=json"
+base_url = "https://pkgs.tailscale.com/stable/"
+team_id = "W5364U7YZB"

@@ -1,0 +1,44 @@
+schema = 1
+description = "macOS 完整工作站、Mihomo 网页客户端与官方 Tailscale"
+platforms = ["macos"]
+extends = ["workstation"]
+
+[[install]]
+component = "mihomo"
+action = "install"
+args = []
+
+[[install]]
+component = "tailscale"
+action = "install"
+args = []
+
+[[install]]
+component = "mihomo"
+action = "apply"
+args = []
+
+[[install]]
+component = "tailscale"
+action = "apply"
+args = []
+
+[[install]]
+component = "mihomo"
+action = "check"
+args = []
+
+[[install]]
+component = "tailscale"
+action = "check"
+args = []
+
+[[check]]
+component = "mihomo"
+action = "check"
+args = []
+
+[[check]]
+component = "tailscale"
+action = "check"
+args = []

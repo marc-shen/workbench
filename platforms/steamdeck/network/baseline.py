@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time root setup for native DNS; 302 is managed by its official GUI."""
+"""One-time root setup for native Steam Deck DNS."""
 import argparse
 import os
 from pathlib import Path

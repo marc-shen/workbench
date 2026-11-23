@@ -31,7 +31,7 @@ def load_profile(repo, name, seen=()):
 
 
 def workflow(components, action, args, repo, root, platform):
-    profile = args[0] if args and not args[0].startswith('-') else ('steamdeck' if platform == 'steamdeck' else 'workstation')
+    profile = args[0] if args and not args[0].startswith('-') else (platform if platform in ('steamdeck', 'macos') else 'workstation')
     rest = args[1:] if args and args[0] == profile else args
     if rest:
         raise RuntimeError('Unexpected system arguments: ' + ' '.join(rest))

@@ -4,7 +4,7 @@ set -euo pipefail
 repo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 case "${1-}" in -h|--help)
  echo 'Usage: ./install.sh [PROFILE] [--plan]'
- echo 'Profiles: base, workstation, steamdeck, scientific; more can be added under profiles/.'
+ echo 'Profiles: base, workstation, macos, steamdeck, scientific; more can be added under profiles/.'
  echo 'Installs OS prerequisites, bootstraps ~/Software, then runs workbench system install.'
  exit 0;; esac
 for arg in "$@"; do

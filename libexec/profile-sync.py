@@ -58,7 +58,7 @@ def scope_files(files, scope):
         'shell': ('config/shell/', 'config/starship/', 'config/wezterm/'),
         'emacs': ('config/emacs/', 'platforms/'),
         'helix': ('config/helix/',),
-        'network': ('platforms/steamdeck/network/', 'docs/steamdeck-network', 'docs/steamdeck-mihomo'),
+        'network': ('platforms/macos/network/', 'libexec/macos_network.py', 'docs/macos-network', 'platforms/steamdeck/network/', 'docs/steamdeck-network', 'docs/steamdeck-mihomo'),
     }
     return {k: v for k, v in files.items() if k.startswith(('bin/', 'lib/', 'libexec/', 'commands/', 'providers/', 'components/', 'profiles/', 'platforms/', 'bootstrap.sh') + prefixes[scope])}
 
@@ -95,7 +95,10 @@ def missing_dependencies(root, scopes):
     if 'emacs' in scopes:
         if not executable(root, 'emacsclient'): missing['native'].append('Emacs (run workbench emacs install runtime)')
     if 'network' in scopes:
-        from deck_network import pending
+        if sys.platform == 'darwin':
+            from macos_network import pending
+        else:
+            from deck_network import pending
         missing['network'] = pending(root)
     return missing
 
@@ -172,8 +175,8 @@ def report_changes(scopes, state, files, root):
 def apply_unlocked(args, root):
     from deck_network import is_steamdeck
     scopes = list(SCOPES) if args.only == 'all' else [args.only]
-    if not is_steamdeck():
-        if args.only == 'network': raise RuntimeError('The network scope is only supported on Steam Deck.')
+    if not is_steamdeck() and sys.platform != 'darwin':
+        if args.only == 'network': raise RuntimeError('The network scope is supported on macOS and Steam Deck.')
         scopes = [s for s in scopes if s != 'network']
     # Shell deployment also manages Helix, matching deploy.py's existing contract.
     if args.only == 'shell': scopes.append('helix')
@@ -184,7 +187,7 @@ def apply_unlocked(args, root):
     if args.plan:
         print('PLAN: repair links, deploy the Mac Dock bundle, write service definitions without restarting Emacs, verify links.')
         if 'network' in scopes:
-            print('PLAN: install Mihomo/MetaCubeXD, prepare deck-tailscale; keep private data local.')
+            print('PLAN: install Mihomo/MetaCubeXD and platform-native Tailscale; keep private data local.')
         print('Missing dependencies will ' + ('be installed.' if args.install_missing else 'be reported only.'))
         return 0
     attempt = {'started_at': datetime.datetime.now().astimezone().isoformat(timespec='microseconds'),
@@ -201,7 +204,11 @@ def apply_unlocked(args, root):
             runner.run('write Emacs service (keep live daemon)', [sys.executable, REPO / 'libexec/deploy.py', 'service', '--prefix', root, '--no-start'])
         if args.install_missing: install_missing(root, scopes, runner)
         if 'network' in scopes and args.install_missing:
-            runner.run('deploy Deck network clients', [sys.executable, REPO / 'libexec/deck_network.py', '--prefix', root, 'all', 'prepare'])
+            if sys.platform == 'darwin':
+                for service in ('mihomo', 'tailscale'):
+                    runner.run('deploy Mac '+service, [sys.executable, REPO / 'libexec/macos_network.py', '--prefix', root, service, 'install'])
+            else:
+                runner.run('deploy Deck network clients', [sys.executable, REPO / 'libexec/deck_network.py', '--prefix', root, 'all', 'prepare'])
         print('Verified configuration links:', verify_links(root, scopes))
         pending = missing_dependencies(root, scopes)
         attempt['pending_dependencies'] = pending
@@ -218,7 +225,7 @@ def apply_unlocked(args, root):
         if any(pending.values()):
             print('Configuration deployed; dependencies remain missing:', json.dumps(pending))
             if pending.get('network'):
-                print('Network: see docs/steamdeck-network.md; local sudo/login steps require completion on the Deck.')
+                print('Network: see docs/macos-network.md or docs/steamdeck-network.md; complete local administrator/login steps.')
             if any(names for group, names in pending.items() if group != 'network'):
                 print('Run workbench profile apply to install missing managed dependencies; missing native Emacs needs workbench emacs install runtime. For the full environment, use workbench system install.')
         print('Deployment log:', runner.path)

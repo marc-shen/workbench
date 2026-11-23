@@ -86,6 +86,8 @@ def main(name, argv):
         service = install['service']
         if action == 'list':
             Console().table([(name, spec['description']), ('operations', ' '.join(spec['actions']))]); return 0
+        if platform == 'macos':
+            return backend('macos_network.py', service, action)
         if action == 'apply':
             sys.path.insert(0, str(REPO / 'libexec'))
             import deck_network

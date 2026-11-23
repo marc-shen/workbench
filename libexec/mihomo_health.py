@@ -24,8 +24,10 @@ class GroupHealth:
     def __init__(self, api, config, folder):
         self.api = api
         self.file = Path(folder) / 'group-recovery.json'
-        nodes = {p['name'] for p in config.get('proxies', [])}
-        self.groups = {g['name']: g for g in config.get('proxy-groups', [])
+        self.node_providers=config.get('x-workbench-node-providers',{})
+        nodes = {p['name'] for p in config.get('proxies', [])} | set(self.node_providers)
+        scoped=config.get('proxy-groups',[]) + config.get('x-workbench-scoped-fallbacks',[])
+        self.groups = {g['name']: g for g in scoped
                        if g.get('type') == 'fallback' and g.get('proxies')
                        and all(p in nodes for p in g['proxies'])}
         self.wrappers = {g['name']: g for g in config.get('proxy-groups', [])
@@ -60,8 +62,10 @@ class GroupHealth:
 
     def test(self, name, url):
         try:
-            result = self.api.request('GET', '/proxies/' + quote(name, safe='') + '/delay?' +
-                urlencode({'url': url, 'timeout': 3000}), timeout=5)
+            provider=self.node_providers.get(name)
+            path=('/providers/proxies/'+quote(provider,safe='')+'/'+quote(name,safe='')+'/healthcheck'
+                  if provider else '/proxies/'+quote(name,safe='')+'/delay')
+            result = self.api.request('GET', path+'?' + urlencode({'url': url, 'timeout': 3000}), timeout=5)
             return isinstance(result.get('delay'), (float, int)) and result['delay'] > 0
         except (OSError, ValueError, KeyError):
             return False
@@ -69,6 +73,10 @@ class GroupHealth:
     def tick(self, now=None):
         now = time.time() if now is None else now
         proxies = self.api.request('GET', '/proxies')['proxies']
+        if self.node_providers:
+            for provider in self.api.request('GET','/providers/proxies')['providers'].values():
+                for proxy in provider.get('proxies',[]):
+                    if proxy['name'] in self.node_providers:proxies[proxy['name']]=proxy
         for wrapper in self.wrappers:
             if not self.allowed:
                 return
