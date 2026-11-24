@@ -21,10 +21,17 @@ autoload -Uz compinit
 compinit -d "$SOFTWARE_USER_HOME/cache/zsh/zcompdump-$ZSH_VERSION"
 # compinit can reuse a stale dump when files are renamed but their count stays
 # the same. Register the renamed entry explicitly, including its helper.
+# Reload our completion function when this file is sourced after an update.
+unfunction _workbench 2>/dev/null
 autoload -Uz _workbench
 compdef _workbench workbench
 [[ ${_comps[manage]-} != _manage ]] || compdef -d manage
 zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':completion:*:*:workbench:*' group-name ''
+zstyle ':completion:*:*:workbench:*' group-order \
+ workbench-management workbench-cli workbench-terminal workbench-development \
+ workbench-editors workbench-network workbench-latex workbench-fonts \
+ workbench-actions workbench-targets options
 zstyle ':completion:*' menu select
 if (( $+commands[fd] )); then
  export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'

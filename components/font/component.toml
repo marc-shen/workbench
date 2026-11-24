@@ -1,0 +1,29 @@
+schema = 1
+name = "font"
+description = "工作站字体：MesloLGS NF、Sarasa Mono SC"
+category = "fonts"
+tags = ["fonts"]
+platforms = ["macos"]
+requires = []
+entrypoint = ["{python}", "{repo}/libexec/component.py", "font"]
+arguments = ""
+
+[actions.list]
+description = "列出字体清单和 Homebrew 已安装版本"
+platforms = ["macos", "steamdeck", "fedora", "ubuntu", "debian"]
+
+[actions.check]
+description = "检查字体是否已由 Homebrew 安装，不刷新更新索引"
+
+[actions.outdated]
+description = "刷新 Homebrew 索引并检查字体更新，不安装软件"
+
+[actions.install]
+description = "补齐缺失字体，保留已有版本"
+
+[actions.update]
+description = "更新清单中的字体并补齐缺失项"
+
+[install]
+kind = "fonts"
+provider = "native"

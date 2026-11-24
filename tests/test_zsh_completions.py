@@ -40,6 +40,8 @@ class CompletionTests(unittest.TestCase):
 fpath=("$WORKBENCH_HOME/config/shell/completions" $fpath)
 autoload -Uz compinit
 compinit -D
+zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':completion:*:*:workbench:*' group-name ''
 PROMPT='READY> '
 LISTMAX=0
 _capture_complete() {
@@ -48,6 +50,10 @@ _capture_complete() {
       local -a captured
       builtin compadd -A captured "$@"
       (( ! $#captured )) || print -rl -- "${captured[@]}" >> "$COMPLETION_CAPTURE"
+      local group_index=${argv[(Ie)-J]}
+      if (( $#captured && group_index )); then
+        print -r -- "__GROUP__${argv[group_index+1]}" >> "$COMPLETION_CAPTURE"
+      fi
     fi
     builtin compadd "$@"
   }
@@ -76,7 +82,10 @@ bindkey '^I' capture-complete
                     if select.select([master], [], [], .05)[0]:
                         transcript += os.read(master, 65536)
                     if output.exists() and '__DONE__' in output.read_text():
-                        return set(output.read_text().splitlines()) - {'__DONE__'}
+                        lines=output.read_text().splitlines()
+                        self.completion_groups=[line.removeprefix('__GROUP__') for line in lines if line.startswith('__GROUP__')]
+                        self.completion_transcript=transcript.decode(errors='replace')
+                        return {line for line in lines if not line.startswith('__')}
                 self.fail('Completion timed out: ' + transcript.decode(errors='replace'))
             finally:
                 proc.terminate()
@@ -95,6 +104,28 @@ bindkey '^I' capture-complete
     def test_workbench_plugins_actions_and_names(self):
         self.assertTrue({'list', 'check', 'install', 'update'} <= self.complete('workbench fzf-tab '))
         self.assertTrue({'fzf-tab', 'zsh-autosuggestions'} <= self.complete('workbench '))
+
+    def test_workbench_components_have_distinct_category_groups(self):
+        names=self.complete('workbench --platform macos ')
+        self.assertIn('font',names)
+        self.assertIn('extra',names)
+        self.assertNotIn('gcc',names)
+        groups=list(dict.fromkeys(self.completion_groups))
+        for group in ('management','cli','terminal','development','editors','network','latex','fonts'):
+            self.assertIn('workbench-'+group,groups)
+        self.assertLess(groups.index('workbench-management'),groups.index('workbench-fonts'))
+
+    def test_font_actions_and_action_specific_options(self):
+        self.assertTrue({'list','check','outdated','install','update'} <= self.complete('workbench --platform macos font '))
+        options=self.complete('workbench --platform macos font check --')
+        self.assertIn('--plan',options)
+        self.assertFalse({'--probe','--only','--shared','--reinstall'} & options)
+        self.assertIn('--shared',self.complete('workbench components create --'))
+        self.assertTrue({'--only','--config-only'} <= self.complete('workbench profile apply --'))
+
+    def test_commands_without_targets_do_not_offer_repository_files(self):
+        matches=self.complete('workbench --platform macos font check ')
+        self.assertFalse({'README.md','components','lib','tests','bootstrap.sh'} & matches)
 
     def test_lists_at_profile_and_network_entry(self):
         self.assertIn('list', self.complete('workbench profile '))

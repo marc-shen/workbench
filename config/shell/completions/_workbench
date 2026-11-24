@@ -1,8 +1,8 @@
 #compdef workbench
 local context state state_descr line
 local -A opt_args
-local -a choices
-local component action root helper
+local -a choices rows query_args action_options
+local component action root helper row group title choice previous previous_title option description
 root=${SOFTWARE_HOME:-$HOME/Software}
 helper=${WORKBENCH_HOME:-$root/config/workbench}/bin/workbench
 [[ ! -x $root/bin/workbench ]] || helper=$root/bin/workbench
@@ -14,6 +14,8 @@ _arguments -C \
   '--plan[只显示计划]' '--json[结构化输出]' '--version[版本]' \
   '1:功能:->component' '*::参数:->args'
 root=${opt_args[--prefix]:-$root}
+query_args=(--prefix "$root")
+[[ -z ${opt_args[--platform]-} ]] || query_args+=(--platform "$opt_args[--platform]")
 case $state in
   category|tag)
     local query=categories
@@ -21,9 +23,24 @@ case $state in
     choices=("${(@f)$("$helper" --complete "$query" 2>/dev/null)}")
     compadd -a choices ;;
   component)
-    choices=("${(@f)$("$helper" --prefix "$root" --complete components 2>/dev/null)}")
-    choices+=('list:列出全部功能')
-    _describe '功能' choices ;;
+    rows=("${(@f)$("$helper" "${query_args[@]}" --complete component-groups 2>/dev/null)}")
+    choices=()
+    for row in "${rows[@]}"; do
+      [[ -n $row ]] || continue
+      IFS=$'\t' read -r group title choice <<< "$row"
+      if [[ -n $previous && $group != $previous ]]; then
+        choices=("${(@o)choices}")
+        _describe -t "workbench-$previous" "$previous_title" choices -J "workbench-$previous"
+        choices=()
+      fi
+      choices+=("$choice")
+      previous=$group previous_title=$title
+    done
+    if (( $#choices )); then
+      choices=("${(@o)choices}")
+      _describe -t "workbench-$previous" "$previous_title" choices -J "workbench-$previous"
+    fi
+    return 0 ;;
   args)
     component=$line[1]
     if [[ $component == list ]]; then
@@ -35,19 +52,39 @@ case $state in
       return 0
     fi
     words[1]=$component
+    action=$words[2]
+    action_options=()
+    rows=("${(@f)$("$helper" "${query_args[@]}" --complete options "$component" "$action" 2>/dev/null)}")
+    for row in "${rows[@]}"; do
+      [[ -n $row ]] || continue
+      option=${row%%:*} description=${row#*:}
+      # _arguments syntax uses brackets for descriptions.
+      description=${description//\[/\(}
+      description=${description//\]/\)}
+      case $option in
+        '--only '*)
+          if [[ $action == check || $action == link ]]; then
+            action_options+=("--only=[$description]:范围:(all shell emacs helix)")
+          else
+            action_options+=("--only=[$description]:范围:(all shell emacs helix network)")
+          fi ;;
+        *' '*) action_options+=("${option%% *}=[$description]:参数值:") ;;
+        *) action_options+=("${option}[$description]") ;;
+      esac
+    done
     _arguments -C \
       '(-h --help)'{-h,--help}'[显示帮助]' \
-      '--plan[只显示计划]' '--json[结构化输出]' '--shared[在仓库创建组件]' \
-      '--only=[配置范围]:范围:(all shell emacs helix network)' \
-      '--config-only[只部署配置]' '--probe[验证 LSP 协议]' '--reinstall[重新安装]' \
+      '--plan[只显示计划]' '--json[结构化输出]' "${action_options[@]}" \
       '1:操作:->action' '*:对象:->target'
     case $state in
       action)
-        choices=("${(@f)$("$helper" --prefix "$root" --complete actions "$component" 2>/dev/null)}")
-        compadd -a choices ;;
+        choices=("${(@f)$("$helper" "${query_args[@]}" --complete action-descriptions "$component" 2>/dev/null)}")
+        _describe -t workbench-actions '操作' choices -J workbench-actions ;;
       target)
         action=$words[2]
-        choices=("${(@f)$("$helper" --prefix "$root" --complete targets "$component" "$action" 2>/dev/null)}")
-        if (( $#choices )); then compadd -a choices; else _files; fi ;;
-    esac ;;
+        choices=("${(@f)$("$helper" "${query_args[@]}" --complete targets "$component" "$action" 2>/dev/null)}")
+        choices=("${(@o)choices:#}")
+        (( ! $#choices )) || compadd -J workbench-targets -a choices ;;
+    esac
+    return 0 ;;
 esac

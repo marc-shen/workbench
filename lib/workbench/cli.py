@@ -71,7 +71,8 @@ def main(argv=None):
     parser.add_argument('-h', '--help', action='help', help='显示帮助')
     parser.add_argument('--prefix', type=Path, metavar='<dir>', help='Software 安装目录（放在组件名前）', default=Path(os.environ.get('SOFTWARE_HOME', str(Path.home() / 'Software'))))
     parser.add_argument('--platform', choices=SUPPORTED, metavar='<platform>', help='预览平台：macos|steamdeck|fedora|ubuntu|debian；跨平台仅支持 --plan')
-    parser.add_argument('--complete', choices=['components', 'actions', 'targets', 'categories', 'tags', 'packages'], help=argparse.SUPPRESS)
+    parser.add_argument('--complete', choices=['components', 'component-groups', 'actions', 'action-descriptions',
+                                              'options', 'targets', 'categories', 'tags', 'packages'], help=argparse.SUPPRESS)
     parser.add_argument('--category', choices=CATEGORIES, help='按用途分类筛选列表')
     parser.add_argument('--tag', help='按标签筛选列表')
     parser.add_argument('--version', action='version', version=__version__, help='显示版本')
@@ -99,17 +100,25 @@ def main(argv=None):
         as_json = args.json or '--json' in rest
         rest = [a for a in rest if a not in ('--plan', '--json')]
         if args.complete:
+            from . import completion
             if args.complete == 'categories': print('\n'.join(CATEGORIES)); return 0
             if args.complete == 'tags': print('\n'.join(sorted({tag for spec in components.values() for tag in spec.get('tags', [])}))); return 0
             if args.complete == 'packages': print('\n'.join(tool_specs(REPO))); return 0
             if args.complete == 'components':
                 print('\n'.join(name + ':' + spec['description'] for name, spec in components.items()))
+            elif args.complete == 'component-groups':
+                print('\n'.join(completion.component_groups(components, platform)))
             elif args.component in components:
                 spec = components[args.component]
                 if args.complete == 'actions':
                     print('\n'.join(spec['actions']))
+                elif args.complete == 'action-descriptions':
+                    print('\n'.join(completion.action_descriptions(spec, platform)))
                 elif rest and rest[0] in spec['actions']:
-                    print('\n'.join(registry.targets(spec, rest[0], REPO)))
+                    if args.complete == 'options':
+                        print('\n'.join(completion.options(spec, rest[0])))
+                    elif args.complete == 'targets':
+                        print('\n'.join(registry.targets(spec, rest[0], REPO)))
             return 0
         if args.component in (None, 'list'):
             if rest: raise RuntimeError('Unexpected list arguments: ' + ' '.join(rest))

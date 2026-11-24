@@ -21,6 +21,16 @@ WezTerm 由独立组件安装，BetterDisplay、Maccy 和 Ice 由 [macOS Brewfil
 字体也在平台阶段自动安装：`font-meslo-for-powerlevel10k` 提供 Emacs/WezTerm 使用的 `MesloLGS NF`
 （常规、粗体、斜体、粗斜体），`font-sarasa-gothic` 提供 Emacs 首选中文字体 `Sarasa Mono SC`。
 这些字体在编辑器和终端启动前安装，并随 `workbench platform check` 检查。
+字体也可以独立管理（当前支持 macOS），与整机安装共用同一份字体清单：
+
+```sh
+workbench font list      # 列出清单和 Homebrew 安装版本
+workbench font check     # 检查是否安装，不刷新更新索引
+workbench font outdated  # 刷新 Homebrew 索引，显示可用字体更新，不安装软件
+workbench font install   # 只补齐缺失字体
+workbench font update    # 只更新字体并补齐缺失项
+```
+
 MacTeX 使用 [官方通过 CTAN 分发的 PKG](https://ctan.org/tex-archive/systems/mac/mactex)，不经过 Homebrew。
 macOS 方案的其他安装与检查全部成功后，弹窗询问是否安装，默认“稍后安装”；SSH 使用终端询问，
 非交互运行自动跳过。跳过不影响整机检查，已有完整 MacTeX 也不会重复下载。
@@ -78,6 +88,7 @@ workbench texlive install
 | editors | Emacs、Helix |
 | network | Mihomo（含 MetaCubeXD）、Tailscale |
 | latex | TeX Live |
+| fonts | 工作站字体（macOS） |
 
 每个软件只有一个主分类，可拥有多个标签。分类用于显示与筛选，依赖直接指向组件。
 Homebrew、dnf、apt、uv、Pixi、nvm 是安装方式，不作为软件用途分类。
@@ -107,6 +118,9 @@ Mac 网络部署见 [macOS 网络客户端](docs/macos-network.md)。
 终端自动配色并按中英文宽度对齐；`<参数>` 必填、`[参数]` 可选。
 管道、重定向、`NO_COLOR` 和 `TERM=dumb` 禁用配色；JSON 与补全数据始终无颜色。
 更新补全后重新打开终端或执行 `source ~/.zshrc`。
+Zsh 的 `workbench <Tab>` 按框架管理、命令行工具、终端与 Shell、开发环境、编辑器、网络、LaTeX、字体分组，
+组内按名称排序，仅显示当前平台支持的组件。启用 fzf-tab 时可用 `<` / `>` 切换分组。
+子命令只补全其支持的操作、参数和对象；没有对象的命令不再混入当前目录文件。
 
 ## 目录与扩展
 

@@ -64,6 +64,9 @@ def main(name, argv):
             return 0
     install = spec.get('install', {})
     kind = install.get('kind')
+    if kind == 'fonts':
+        from .fonts import font_action
+        return font_action(action, argv[1:], REPO, platform)
     if kind == 'emacs':
         from .provision import emacs_action
         return emacs_action(action, args, REPO, ROOT, platform)
