@@ -1,4 +1,4 @@
-#compdef workbench
+#compdef workbench wb
 local context state state_descr line
 local -A opt_args
 local -a choices rows query_args action_options

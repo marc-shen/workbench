@@ -24,11 +24,11 @@ compinit -d "$SOFTWARE_USER_HOME/cache/zsh/zcompdump-$ZSH_VERSION"
 # Reload our completion function when this file is sourced after an update.
 unfunction _workbench 2>/dev/null
 autoload -Uz _workbench
-compdef _workbench workbench
+compdef _workbench workbench wb
 [[ ${_comps[manage]-} != _manage ]] || compdef -d manage
 zstyle ':completion:*:descriptions' format '[%d]'
-zstyle ':completion:*:*:workbench:*' group-name ''
-zstyle ':completion:*:*:workbench:*' group-order \
+zstyle ':completion:*:*:(workbench|wb):*' group-name ''
+zstyle ':completion:*:*:(workbench|wb):*' group-order \
  workbench-management workbench-cli workbench-terminal workbench-development \
  workbench-editors workbench-network workbench-latex workbench-fonts \
  workbench-actions workbench-targets options
@@ -74,6 +74,7 @@ else
  alias ls='ls --color=auto -F' o=xdg-open
 fi
 alias ll='ls -alF' la='ls -A' l='ls -CF' sz='source ~/.zshrc'
+alias wb=workbench
 alias ga='git add . && git commit'
 unalias gap 2>/dev/null
 function gap {

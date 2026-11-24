@@ -118,7 +118,8 @@ Mac 网络部署见 [macOS 网络客户端](docs/macos-network.md)。
 终端自动配色并按中英文宽度对齐；`<参数>` 必填、`[参数]` 可选。
 管道、重定向、`NO_COLOR` 和 `TERM=dumb` 禁用配色；JSON 与补全数据始终无颜色。
 更新补全后重新打开终端或执行 `source ~/.zshrc`。
-Zsh 的 `workbench <Tab>` 按框架管理、命令行工具、终端与 Shell、开发环境、编辑器、网络、LaTeX、字体分组，
+Zsh 中可用 `wb` 代替 `workbench`，例如 `wb font check`；更新后运行 `source ~/.zshrc` 生效。
+`workbench <Tab>` 和 `wb <Tab>` 按框架管理、命令行工具、终端与 Shell、开发环境、编辑器、网络、LaTeX、字体分组，
 组内按名称排序，仅显示当前平台支持的组件。启用 fzf-tab 时可用 `<` / `>` 切换分组。
 子命令只补全其支持的操作、参数和对象；没有对象的命令不再混入当前目录文件。
 
