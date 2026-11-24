@@ -1,4 +1,4 @@
-# System integration and Emacs native module build dependencies only.
+# System integration and Emacs native module build dependencies.
 brew "modules"
 brew "cmake"
 brew "make"
@@ -11,3 +11,9 @@ brew "poppler"
 brew "gnutls"
 brew "tree-sitter"
 cask "emacs-app"
+
+# macOS workstation applications. WezTerm is installed by its own component.
+cask "betterdisplay"
+cask "maccy"
+cask "jordanbaird-ice"
+cask "mactex"

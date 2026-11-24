@@ -16,6 +16,9 @@ cd ~/Software/src/workbench
 macOS 初次安装需要 Apple Command Line Tools 和 Homebrew 授权；Linux 的原生依赖可能需要 sudo。
 SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录与代理订阅由本机用户提供。
 
+macOS 完整安装包含 WezTerm、BetterDisplay、Maccy、Ice（`jordanbaird-ice`）和完整版 MacTeX（含图形应用）。
+WezTerm 由独立组件安装，其余四项由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
+
 仅准备基础目录、Python 和安装后端：
 
 ```sh
