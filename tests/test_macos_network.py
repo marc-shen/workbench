@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import io
 import json
 from pathlib import Path
 import plistlib
@@ -11,6 +12,80 @@ from unittest import mock
 REPO=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(REPO/'libexec'))
 import macos_network as mac
+
+
+class UnconfiguredMacNetworkTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        self.root=Path(temporary.name)
+        (self.root/'config/mihomo').mkdir(parents=True)
+        for name,value in [('VERGE',self.root/'verge'),('DAEMON',self.root/'system/mihomo.plist')]:
+            patch=mock.patch.object(mac,name,value);patch.start();self.addCleanup(patch.stop)
+        self.output=io.StringIO()
+        patch=mock.patch('sys.stdout',self.output);patch.start();self.addCleanup(patch.stop)
+
+    def test_missing_empty_or_commented_subscription_skips_all_workflow_actions(self):
+        source=self.root/'config/mihomo/subscription.url'
+        for content in (None, '', ' \n # add subscription here\n'):
+            if content is not None:source.write_text(content)
+            for action in ('install','apply','check','status','update'):
+                with self.subTest(content=content,action=action), \
+                     mock.patch.object(sys,'argv',['macos_network.py','--prefix',str(self.root),'mihomo',action]), \
+                     mock.patch.object(mac.platform,'system',return_value='Darwin'), \
+                     mock.patch.object(mac,'ensure_yaml') as ensure, \
+                     mock.patch.object(mac,'install_assets') as assets, \
+                     mock.patch.object(mac,'install_user_entries') as entries, \
+                     mock.patch.object(mac,'admin') as admin, mock.patch.object(mac.sp,'run') as run:
+                    self.assertEqual(mac.main(),0)
+                    for call in (ensure,assets,entries,admin,run):call.assert_not_called()
+        self.assertIn('[SKIP]',self.output.getvalue())
+        self.assertIn('workbench mihomo install',self.output.getvalue())
+        self.assertFalse((self.root/'config/mihomo/config.yaml').exists())
+
+    def test_direct_prepare_apply_and_check_also_skip_without_side_effects(self):
+        with mock.patch.object(mac,'install_assets') as assets, \
+             mock.patch.object(mac,'install_user_entries') as entries, \
+             mock.patch.object(mac,'admin') as admin, mock.patch.object(mac.sp,'run') as run:
+            mac.prepare(self.root);mac.apply(self.root)
+            self.assertEqual(mac.status(self.root,'mihomo',True),0)
+            for call in (assets,entries,admin,run):call.assert_not_called()
+
+    def test_adding_subscription_resumes_normal_preparation(self):
+        source=self.root/'config/mihomo/subscription.url'
+        source.write_text('https://example.invalid/private-token\n')
+        with mock.patch.object(mac,'install_assets') as assets, \
+             mock.patch.object(mac,'import_verge') as migrate, \
+             mock.patch.object(mac,'refresh') as refresh, \
+             mock.patch.object(mac,'install_user_entries') as entries:
+            mac.prepare(self.root)
+            for call in (assets,migrate,refresh,entries):call.assert_called_once_with(self.root)
+        self.assertNotIn('private-token',self.output.getvalue())
+
+    def test_bad_subscription_is_not_treated_as_absent(self):
+        (self.root/'config/mihomo/subscription.url').write_text('not-a-subscription-url')
+        with mock.patch.object(mac,'install_assets'),mock.patch.object(mac,'import_verge'), \
+             mock.patch.object(mac,'refresh',side_effect=RuntimeError('invalid subscription')) as refresh, \
+             mock.patch.object(mac,'install_user_entries') as entries:
+            with self.assertRaisesRegex(RuntimeError,'invalid subscription'):mac.prepare(self.root)
+            refresh.assert_called_once();entries.assert_not_called()
+
+    def test_existing_config_without_url_still_reports_service_failure(self):
+        (self.root/'config/mihomo/config.yaml').write_text('existing config')
+        with mock.patch.object(mac.sp,'run',return_value=mock.Mock(returncode=1)), \
+             mock.patch.object(mac,'api',side_effect=OSError('not running')):
+            self.assertEqual(mac.status(self.root,'mihomo',True),1)
+        self.assertNotIn('[SKIP]',self.output.getvalue())
+
+    def test_existing_sources_or_daemon_or_migration_are_never_silently_skipped(self):
+        paths=[self.root/'config/mihomo/provider.yaml',self.root/'config/mihomo/subscriptions.json',
+               mac.DAEMON,mac.VERGE/'profiles.yaml']
+        for path in paths:
+            with self.subTest(path=path.name):
+                path.parent.mkdir(parents=True,exist_ok=True);path.write_text('existing state')
+                self.assertFalse(mac.skip_unconfigured(self.root))
+                with self.assertRaisesRegex(RuntimeError,'No validated configuration'):mac.apply(self.root)
+                path.unlink()
+
 
 @unittest.skipUnless(importlib.util.find_spec('yaml'), 'Run with the managed mihomo-helper Python (PyYAML)')
 class MacNetworkTests(unittest.TestCase):

@@ -69,11 +69,29 @@ def dump_yaml(path, data):
     write(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False), 0o600)
 
 
+def has_subscription(root):
+    source = root/'config/mihomo/subscription.url'
+    return source.exists() and any(line.strip() and not line.lstrip().startswith('#')
+                                   for line in source.read_text().splitlines())
+
+
+def skip_unconfigured(root):
+    """Skip only an unconfigured new installation, never conceal a broken setup."""
+    folder = root/'config/mihomo'
+    if (has_subscription(root) or (VERGE/'profiles.yaml').exists() or DAEMON.exists()
+            or any((folder/name).exists() for name in ('config.yaml', 'provider.yaml', 'subscriptions.json'))):
+        return False
+    print('[SKIP] Mihomo：未提供订阅，也没有可复用的本地配置；跳过安装、启用和服务检查。')
+    print('需要时在 '+str(folder/'subscription.url')+' 中填写订阅（权限 600），然后执行：')
+    print('  workbench mihomo install\n  workbench mihomo apply')
+    return True
+
+
 def import_verge(root):
     """Import once; subscription, custom overrides and selections never enter Git."""
     import yaml
     folder = root / 'config/mihomo'
-    if (folder/'provider.yaml').exists() or (folder/'subscription.url').exists():
+    if (folder/'provider.yaml').exists() or has_subscription(root):
         return
     if not (VERGE/'profiles.yaml').exists():
         return
@@ -228,10 +246,14 @@ def install_user_entries(root):
 
 
 def prepare(root):
+    if skip_unconfigured(root):return
     folder=root/'config/mihomo';folder.mkdir(parents=True,exist_ok=True);folder.chmod(0o700)
     install_assets(root);import_verge(root)
-    if (folder/'provider.yaml').exists() or (folder/'subscription.url').exists():refresh(root)
-    else:print('Set config/mihomo/subscription.url (mode 600), then run workbench mihomo install again.')
+    if has_subscription(root) or (folder/'provider.yaml').exists() or (folder/'subscriptions.json').exists():
+        refresh(root)
+    elif not (folder/'config.yaml').exists():
+        raise RuntimeError('Mihomo has existing installation state but no configuration source. '
+                           'Restore config/mihomo/subscription.url or provider.yaml, then run workbench mihomo install.')
     install_user_entries(root)
     print('Prepared Mihomo and MetaCubeXD. Run workbench mihomo apply to install the system daemon.')
 
@@ -264,6 +286,7 @@ def clear_verge_system_proxy():
 
 
 def apply(root):
+    if skip_unconfigured(root):return
     if not (root/'config/mihomo/config.yaml').exists():
         raise RuntimeError('No validated configuration. Run workbench mihomo install first.')
     if DAEMON.exists() and (SYSTEM/'mihomo').exists():
@@ -344,6 +367,7 @@ def install_tailscale(root, update=False):
 
 
 def status(root, service, check=False):
+    if service=='mihomo' and skip_unconfigured(root):return 0
     issues=[]
     if service=='tailscale':
         if not tailscale_installed():issues.append('Official standalone Tailscale is not installed')
@@ -391,7 +415,11 @@ def main():
         elif a.action=='restart':run([TSBIN,'down']);run([TSBIN,'up'])
         elif a.action=='logs':run(['log','show','--last','10m','--style','compact','--predicate','subsystem BEGINSWITH "io.tailscale"'])
         return 0
-    if a.action in ('install','apply','update') and not ensure_yaml(root,a.service,a.action):return 0
+    if a.action in ('install','apply','update'):
+        # A fresh machine without a subscription needs neither PyYAML nor assets,
+        # administrator authorization, or a failing daily update job.
+        if skip_unconfigured(root):return 0
+        if not ensure_yaml(root,a.service,a.action):return 0
     if a.action=='install':prepare(root)
     elif a.action=='apply':apply(root)
     elif a.action=='update':refresh(root,True)

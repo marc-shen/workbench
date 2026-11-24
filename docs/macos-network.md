@@ -25,6 +25,12 @@ Finder 的 `~/Applications/Mihomo.app` 打开同一网页。
 新机没有现有配置时，在 `~/Software/config/mihomo/subscription.url` 写入订阅，
 权限设为 600，再执行 install/apply。文件每行一个 URL，忽略空行、整行 `#` 注释和重复 URL：
 
+新机未提供订阅（文件不存在、为空或只有注释），且没有已有配置、订阅缓存、系统后台或
+可迁移的 Clash Verge 配置时，Mihomo 的 install/apply/check/update 显示 `[SKIP]` 并正常返回，
+整机安装继续。不下载新的核心或网页，也不创建每日任务或请求管理员授权；已有下载保留。
+之后补上订阅，再运行 `workbench mihomo install` 和 `workbench mihomo apply` 即可启用。
+已有配置的服务故障、订阅格式错误、下载和验证失败仍会报错，不会当作“未提供订阅”忽略。
+
 ```text
 # 第一个订阅提供主规则、策略组和节点
 https://example.com/main-clash-subscription
