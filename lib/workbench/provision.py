@@ -133,7 +133,9 @@ def emacs_action(action, args, repo, root, platform):
         if platform == 'steamdeck' and not (root / 'apps/modules/current/init').is_dir():
             return backend('build-modules.py')
         print('Native Emacs already installed'); return 0
-    if platform == 'macos': return run('brew', 'upgrade' if action == 'update' else 'install', '--cask', 'emacs-app')
+    if platform == 'macos':
+        from .brew import ensure_cask
+        return ensure_cask('emacs-app', action, available=native_installed())
     code = backend('build-emacs.py', '--deps', 'pixi' if platform == 'steamdeck' else 'system')
     if not code and platform == 'steamdeck': code = backend('build-modules.py')
     return code

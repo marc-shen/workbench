@@ -131,7 +131,9 @@ def main(name, argv):
         if action == 'install' and ready and '--reinstall' not in args: return 0
         if kind == 'package': return backend('software.py', 'tools', name, *args)
         if kind == 'wezterm':
-            if platform == 'macos': return run('brew', 'upgrade' if action == 'update' else 'install', '--cask', 'wezterm')
+            if platform == 'macos':
+                from .brew import ensure_cask
+                return ensure_cask('wezterm', action, available=ready, reinstall='--reinstall' in args)
             return backend('install-wezterm.py', *args)
         return backend('install-gcc.py' if kind == 'gcc' else 'install-texlive.py', *args)
     raise RuntimeError('No adapter for ' + name)

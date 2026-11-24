@@ -86,6 +86,10 @@ class FontTests(unittest.TestCase):
             self.assertEqual(grouped['fonts'],['font'])
             self.assertEqual(next(iter(grouped)),'management')
             for names in grouped.values():self.assertEqual(names,sorted(names))
+            from workbench.ui import width
+            labels = list(dict.fromkeys(row.split('\t')[1] for row in completion.component_groups(specs,'macos')))
+            self.assertEqual({width(label) for label in labels}, {4})
+            self.assertLessEqual(width(' '.join('[' + label + ']' for label in labels)), 74)
             linux=list(completion.component_groups(specs,'fedora'))
             self.assertFalse(any('\tfont:' in row for row in linux))
 

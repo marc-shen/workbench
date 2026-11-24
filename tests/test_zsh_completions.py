@@ -1,5 +1,6 @@
 """Exercise real Zsh completion widgets without executing completed commands."""
 import importlib.util
+import fcntl
 import os
 import sys
 from toml_helpers import dumps
@@ -8,6 +9,8 @@ import pty
 import select
 import shutil
 import subprocess
+import struct
+import termios
 import tempfile
 import time
 import unittest
@@ -47,9 +50,18 @@ LISTMAX=0
 _capture_complete() {
   compadd() {
     if (( ! ${argv[(Ie)-O]} && ! ${argv[(Ie)-A]} )); then
-      local -a captured
+      local -a captured displayed
       builtin compadd -A captured "$@"
       (( ! $#captured )) || print -rl -- "${captured[@]}" >> "$COMPLETION_CAPTURE"
+      local display_index=${argv[(Ie)-d]}
+      if (( $#captured && display_index )); then
+        local display_name=${argv[display_index+1]}
+        displayed=("${(@P)display_name}")
+      fi
+      local item
+      for item in "${displayed[@]}"; do
+        print -r -- "__DISPLAY__$item" >> "$COMPLETION_CAPTURE"
+      done
       local group_index=${argv[(Ie)-J]}
       if (( $#captured && group_index )); then
         print -r -- "__GROUP__${argv[group_index+1]}" >> "$COMPLETION_CAPTURE"
@@ -65,6 +77,7 @@ zle -C capture-complete complete-word _capture_complete
 bindkey '^I' capture-complete
 ''')
             master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
             env = dict(os.environ, HOME=tmp, ZDOTDIR=tmp, WORKBENCH_HOME=str(REPO),
                        SOFTWARE_HOME=str(root), PATH=str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH',''), COMPLETION_CAPTURE=str(output), TERM='xterm-256color')
             proc = subprocess.Popen([ZSH, '-d', '-i'], env=env, cwd=REPO,
@@ -84,6 +97,7 @@ bindkey '^I' capture-complete
                     if output.exists() and '__DONE__' in output.read_text():
                         lines=output.read_text().splitlines()
                         self.completion_groups=[line.removeprefix('__GROUP__') for line in lines if line.startswith('__GROUP__')]
+                        self.completion_display=[line.removeprefix('__DISPLAY__') for line in lines if line.startswith('__DISPLAY__')]
                         self.completion_transcript=transcript.decode(errors='replace')
                         return {line for line in lines if not line.startswith('__')}
                 self.fail('Completion timed out: ' + transcript.decode(errors='replace'))
@@ -122,6 +136,17 @@ bindkey '^I' capture-complete
         self.assertFalse({'--probe','--only','--shared','--reinstall'} & options)
         self.assertIn('--shared',self.complete('workbench components create --'))
         self.assertTrue({'--only','--config-only'} <= self.complete('workbench profile apply --'))
+
+    def test_wb_rows_align_and_fit_default_wezterm_window(self):
+        from workbench.ui import width
+        names = self.complete('wb --platform macos ')
+        rows = self.completion_display
+        self.assertGreater(len(rows), 30)
+        self.assertEqual(len({row.index(' -- ') for row in rows}), 1)
+        # Leave room for fzf's cursor, marker and group prefix.
+        self.assertTrue(all(width(row) <= 74 for row in rows))
+        self.assertTrue(all(name == name.strip() for name in names))
+        self.assertIn('zsh-syntax-highlighting', names)
 
     def test_commands_without_targets_do_not_offer_repository_files(self):
         matches=self.complete('workbench --platform macos font check ')

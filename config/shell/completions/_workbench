@@ -1,8 +1,9 @@
 #compdef workbench wb
 local context state state_descr line
 local -A opt_args
-local -a choices rows query_args action_options
+local -a choices matches rows query_args action_options
 local component action root helper row group title choice previous previous_title option description
+local name name_width=0
 root=${SOFTWARE_HOME:-$HOME/Software}
 helper=${WORKBENCH_HOME:-$root/config/workbench}/bin/workbench
 [[ ! -x $root/bin/workbench ]] || helper=$root/bin/workbench
@@ -24,21 +25,29 @@ case $state in
     compadd -a choices ;;
   component)
     rows=("${(@f)$("$helper" "${query_args[@]}" --complete component-groups 2>/dev/null)}")
+    # Share one command column across groups; keep inserted words unpadded.
+    for row in "${rows[@]}"; do
+      choice=${row##*$'\t'}
+      name=${choice%%:*}
+      (( ${#name} <= name_width )) || name_width=${#name}
+    done
     choices=()
+    matches=()
     for row in "${rows[@]}"; do
       [[ -n $row ]] || continue
       IFS=$'\t' read -r group title choice <<< "$row"
       if [[ -n $previous && $group != $previous ]]; then
-        choices=("${(@o)choices}")
-        _describe -t "workbench-$previous" "$previous_title" choices -J "workbench-$previous"
+        _describe -t "workbench-$previous" "$previous_title" choices matches -J "workbench-$previous"
         choices=()
+        matches=()
       fi
-      choices+=("$choice")
+      name=${choice%%:*}
+      choices+=("${(r:$name_width:)name}:${choice#*:}")
+      matches+=("$name")
       previous=$group previous_title=$title
     done
     if (( $#choices )); then
-      choices=("${(@o)choices}")
-      _describe -t "workbench-$previous" "$previous_title" choices -J "workbench-$previous"
+      _describe -t "workbench-$previous" "$previous_title" choices matches -J "workbench-$previous"
     fi
     return 0 ;;
   args)

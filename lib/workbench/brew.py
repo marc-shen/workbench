@@ -1,4 +1,5 @@
 """Visible, per-entry installation of the repository's declarative Brewfile."""
+import json
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,31 @@ import time
 
 from .process import elapsed, stream_command
 from .ui import Console
+
+
+def ensure_cask(name, action, available=False, reinstall=False):
+    """Upgrade managed apps, install missing apps, and preserve external installs."""
+    result = subprocess.run(['brew', 'info', '--json=v2', '--cask', name],
+                            env=dict(os.environ, HOMEBREW_NO_AUTO_UPDATE='1'),
+                            capture_output=True, text=True)
+    if result.returncode:
+        Console().print(result.stderr or f'Homebrew 查询失败：{name}')
+        return result.returncode
+    try:
+        casks = json.loads(result.stdout)['casks']
+        cask = next(item for item in casks
+                    if name in (item.get('token'), item.get('full_token')))
+        managed = bool(cask['installed'])
+    except (ValueError, KeyError, TypeError, StopIteration):
+        raise RuntimeError(f'Homebrew 返回了无效的 cask 状态：{name}') from None
+    if not managed and available:
+        if reinstall:
+            raise RuntimeError(f'{name} 已存在但不由 Homebrew 管理；请先处理现有安装，再重装。')
+        Console().status('SKIP', f'{name} 已存在，但不由 Homebrew 管理；保留现有应用，未检查或安装更新。', 'warn')
+        Console().print('如需更新，请使用原安装渠道。')
+        return 0
+    operation = 'reinstall' if managed and reinstall else 'upgrade' if managed and action == 'update' else 'install'
+    return stream_command(['brew', operation, '--cask', name], label=f'{name} {operation}')
 
 
 def entries(manifest):

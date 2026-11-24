@@ -50,6 +50,11 @@ if [[ -o zle && -t 0 && -t 1 && -r "$_profile_plugins/fzf-tab/fzf-tab.plugin.zsh
  zstyle ':completion:*' menu no
 fi
 zstyle ':fzf-tab:*' switch-group '<' '>'
+# A compact, full-width list for WezTerm's default 80x24 window. Keep command
+# names visible while filtering; horizontal scrolling would hide their prefix.
+zstyle ':fzf-tab:complete:(workbench|wb):*' fzf-flags \
+ --height=80% --layout=reverse --border=none --padding=0 --margin=0 \
+ --info=inline --no-hscroll
 if (( $+commands[zoxide] )); then
  eval "$(zoxide init zsh)"
  alias cd=z
