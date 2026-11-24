@@ -7,8 +7,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from .registry import order, supported
-from .ui import Console, ANSI
+from .ui import Console
+from .process import elapsed, stream_command
 
 READ_ONLY = {'list', 'check', 'status', 'logs', 'plan', 'show'}
 # A GUI can remain open indefinitely. Launching it must neither hold the
@@ -67,7 +69,7 @@ def execute(steps, repo, root, platform):
     console = Console()
     env = dict(os.environ, SOFTWARE_HOME=str(root), SOFTWARE_USER_HOME=str(root),
                WORKBENCH_HOME=str(repo), PROFILE_PLATFORM=platform, PROFILE_PYTHON=sys.executable,
-               PYTHONDONTWRITEBYTECODE='1')
+               PYTHONDONTWRITEBYTECODE='1', PYTHONUNBUFFERED='1')
     for variable, relative in [('UV_TOOL_DIR', 'data/uv/tools'), ('UV_TOOL_BIN_DIR', 'bin'),
                                ('UV_PYTHON_INSTALL_DIR', 'data/uv/python'), ('UV_CACHE_DIR', 'cache/uv'),
                                ('PIXI_CACHE_DIR', 'cache/pixi')]:
@@ -101,6 +103,7 @@ def execute(steps, repo, root, platform):
             temporary.write_text(json.dumps(record, indent=2) + '\n')
             temporary.replace(receipt)
         save()
+        console.table([('安装日志', log)])
         try:
             with log.open('w') as stream:
                 log.chmod(0o600)
@@ -109,20 +112,15 @@ def execute(steps, repo, root, platform):
                     # Do not store arbitrary arguments: they may contain private URLs/tokens.
                     progress = dict(component=step['component'], action=step['action'], status='running')
                     record['steps'].append(progress); save()
-                    process = subprocess.Popen(step['command'], env=env, stdout=subprocess.PIPE,
-                                               stderr=subprocess.STDOUT, text=True)
-                    try:
-                        for line in process.stdout:
-                            print(line if console.color else ANSI.sub('', line), end='', flush=True)
-                            stream.write(ANSI.sub('', line)); stream.flush()
-                        code = process.wait()
-                    finally:
-                        process.stdout.close()
-                        if process.poll() is None:
-                            process.terminate(); process.wait()
-                    progress.update(returncode=code, status='ok' if code == 0 else 'failed')
+                    started = time.monotonic()
+                    code = stream_command(step['command'], env=env, log=stream,
+                                          label=step['component'] + ' ' + step['action'])
+                    duration = time.monotonic() - started
+                    progress.update(returncode=code, status='ok' if code == 0 else 'failed',
+                                    elapsed_seconds=round(duration, 2))
+                    save()
                     console.status('OK' if code == 0 else 'PENDING' if code == 2 else 'FAIL',
-                                   step['component'] + ' ' + step['action'],
+                                   step['component'] + ' ' + step['action'] + f'（{elapsed(duration)}）',
                                    'ok' if code == 0 else 'warn' if code == 2 else 'error')
                     if code:
                         record['status'] = 'pending' if code == 2 else 'failed'; save()

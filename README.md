@@ -19,6 +19,12 @@ SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Ta
 macOS 完整安装包含 WezTerm、BetterDisplay、Maccy、Ice（`jordanbaird-ice`）和完整版 MacTeX（含图形应用）。
 WezTerm 由独立组件安装，其余四项由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
 
+安装时显示总步骤及耗时；Homebrew 按清单逐项显示 `BREW 当前项/总数`，区分已有跳过、成功与失败，
+并实时输出下载和安装详情。进度计数指 Brewfile 中的项目，不包括 Homebrew 自动解析的依赖；
+没有新输出超过 15 秒会显示当前任务和已用时间，不估算下载百分比。
+日志路径在安装开始时显示，默认保存在 `~/Software/logs/workbench-*.log`。
+失败后修复问题并重跑原命令，`install` 会跳过已安装项。
+
 仅准备基础目录、Python 和安装后端：
 
 ```sh

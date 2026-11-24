@@ -52,8 +52,8 @@ def platform_action(action, args, repo, root, platform):
         if action == 'check':
             os.environ['HOMEBREW_NO_AUTO_UPDATE'] = '1'
             return run(brew, 'bundle', 'check', '--no-upgrade', '--file=' + str(manifest))
-        # bundle install also installs missing native dependencies without upgrading existing ones.
-        return run(brew, 'bundle', 'install', '--file=' + str(manifest), *(['--no-upgrade'] if action == 'install' else []))
+        from .brew import install
+        return install(brew, manifest, action)
     names = packages(repo, platform)
     missing = missing_packages(names, platform)
     if action == 'check':

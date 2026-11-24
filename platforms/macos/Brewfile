@@ -1,4 +1,5 @@
 # System integration and Emacs native module build dependencies.
+# Keep one plain brew/cask declaration per line for per-package progress.
 brew "modules"
 brew "cmake"
 brew "make"
