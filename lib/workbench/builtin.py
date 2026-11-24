@@ -104,6 +104,10 @@ def main(name, argv):
             Console().status('OK' if ready else 'MISSING', 'Python 3.12: ' + str(binary), 'ok' if ready else 'error')
             return int(action == 'check' and not ready)
         ensure(ROOT, update=action == 'update'); return 0
+    if kind == 'texlive' and platform == 'macos':
+        if args: raise RuntimeError('texlive takes no targets')
+        from .mactex import mactex_action
+        return mactex_action(action, ROOT, install['macos'])
     if kind in ('package', 'wezterm', 'gcc', 'texlive'):
         if any(arg != '--reinstall' for arg in args): raise RuntimeError(name + ' accepts only [--reinstall]')
         commands = install.get('commands', ['wezterm'] if kind == 'wezterm' else ['gfortran'] if kind == 'gcc' else ['xelatex'])

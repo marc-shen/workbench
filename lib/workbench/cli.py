@@ -20,13 +20,13 @@ def load_profile(repo, name, seen=()):
     if not path.is_file(): raise RuntimeError('Unknown installation profile: ' + name)
     spec = registry.read(path)
     if spec.get('schema') != 1: raise RuntimeError('Unsupported profile schema: ' + name)
-    result = dict(spec, install=[], check=[])
+    result = dict(spec, install=[], check=[], after_install=[])
     for parent in spec.get('extends', []):
         inherited = load_profile(repo, parent, (*seen, name))
         if not set(spec['platforms']) <= set(inherited['platforms']):
             raise RuntimeError(name + ': parent does not support the selected platforms')
-        for action in ('install', 'check'): result[action].extend(inherited[action])
-    for action in ('install', 'check'): result[action].extend(spec.get(action, []))
+        for action in ('install', 'check', 'after_install'): result[action].extend(inherited[action])
+    for action in ('install', 'check', 'after_install'): result[action].extend(spec.get(action, []))
     return result
 
 
@@ -40,6 +40,8 @@ def workflow(components, action, args, repo, root, platform):
         raise RuntimeError(profile + ' is not supported on ' + platform)
     steps, installed = [], set()
     entries = spec['check'] if action == 'check' else spec['install'] + spec['check']
+    if action == 'install':
+        entries += spec['after_install']
     platform_path = repo / 'platforms' / platform / 'platform.toml'
     platform_spec = registry.read(platform_path) if platform_path.is_file() else {}
     if target := platform_spec.get('mirror_target'):

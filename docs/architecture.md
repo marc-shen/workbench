@@ -61,6 +61,9 @@ install/update 先解析 `requires` 中的具体组件，再补齐需要的 uv/P
 
 `profiles/*.toml` 组合明确的组件操作，可使用 extends 继承其他方案。步骤字段为 component/action/args。
 安装/更新后执行方案的完整 check；相同依赖步骤去重。默认 Steam Deck 选择 steamdeck，其余选择 workstation。
+`after_install` 中的步骤只在 `system install` 的安装和检查全部成功后执行，也支持继承。
+macOS 用它调用 `texlive offer`，询问是否安装官方 MacTeX PKG；拒绝或非交互运行时跳过，
+不把可选软件加入强制检查。`system check/update` 不执行安装询问。
 跨平台 `--platform` 只允许预览，不能伪装为其他系统实际安装。
 
 ## 引导和 Python

@@ -1,9 +1,9 @@
 schema = 1
 name = "texlive"
-description = "TeX Live 排版环境"
+description = "TeX Live 排版环境（macOS 使用 MacTeX）"
 category = "latex"
 tags = ["typesetting"]
-platforms = ["steamdeck", "fedora", "ubuntu", "debian"]
+platforms = ["macos", "steamdeck", "fedora", "ubuntu", "debian"]
 requires = []
 entrypoint = ["{python}", "{repo}/libexec/component.py", "texlive"]
 arguments = ""
@@ -23,6 +23,14 @@ description = "补齐缺失安装"
 [actions.update]
 description = "显式更新版本"
 
+[actions.offer]
+description = "全部安装和检查完成后询问是否安装 MacTeX，可跳过"
+platforms = ["macos"]
+
 [install]
 kind = "texlive"
 provider = "upstream"
+
+[install.macos]
+package_url = "https://mirror.ctan.org/systems/mac/mactex/MacTeX.pkg"
+checksum_url = "https://mirror.ctan.org/systems/mac/mactex/MacTeX.pkg.sha512"

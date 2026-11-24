@@ -16,8 +16,22 @@ cd ~/Software/src/workbench
 macOS 初次安装需要 Apple Command Line Tools 和 Homebrew 授权；Linux 的原生依赖可能需要 sudo。
 SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录与代理订阅由本机用户提供。
 
-macOS 完整安装包含 WezTerm、BetterDisplay、Maccy、Ice（`jordanbaird-ice`）和完整版 MacTeX（含图形应用）。
-WezTerm 由独立组件安装，其余四项由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
+macOS 完整安装包含 WezTerm、BetterDisplay、Maccy 和 Ice（`jordanbaird-ice`），另提供可选的完整版 MacTeX（含图形应用）。
+WezTerm 由独立组件安装，BetterDisplay、Maccy 和 Ice 由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
+MacTeX 使用 [官方通过 CTAN 分发的 PKG](https://ctan.org/tex-archive/systems/mac/mactex)，不经过 Homebrew。
+macOS 方案的其他安装与检查全部成功后，弹窗询问是否安装，默认“稍后安装”；SSH 使用终端询问，
+非交互运行自动跳过。跳过不影响整机检查，已有完整 MacTeX 也不会重复下载。
+
+稍后可单独安装或检查：
+
+```sh
+workbench texlive install
+workbench texlive check
+```
+
+安装器支持断点续传和下载缓存，校验官方 SHA512、安装包签名及 Gatekeeper，
+再通过系统 `installer` 安装；届时可能要求输入管理员密码。
+整机 `update` 不触发这个可选安装，更新官方 PKG 使用 `workbench texlive update`。
 
 安装时显示总步骤及耗时；Homebrew 按清单逐项显示 `BREW 当前项/总数`，区分已有跳过、成功与失败，
 并实时输出下载和安装详情。进度计数指 Brewfile 中的项目，不包括 Homebrew 自动解析的依赖；

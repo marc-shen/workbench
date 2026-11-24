@@ -42,3 +42,9 @@ args = []
 component = "tailscale"
 action = "check"
 args = []
+
+# Offer the large optional download only after all installation and checks pass.
+[[after_install]]
+component = "texlive"
+action = "offer"
+args = []
