@@ -15,6 +15,11 @@ config.initial_cols = 80
 config.initial_rows = 24
 
 -- Font settings
+if is_macos then
+  -- Homebrew installs fonts into ~/Library/Fonts. CoreText may not discover
+  -- them immediately (including after an SSH install); also scan the files.
+  config.font_dirs = { wezterm.home_dir .. '/Library/Fonts', '/Library/Fonts' }
+end
 config.font = wezterm.font_with_fallback {
   -- 'Protomolecule',
   'MesloLGS NF',
