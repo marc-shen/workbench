@@ -11,6 +11,12 @@ brew "libvterm"
 brew "poppler"
 brew "gnutls"
 brew "tree-sitter"
+
+# Install the configured font families before Emacs/WezTerm are started.
+# MesloLGS NF is the Powerlevel10k variant; Sarasa includes Sarasa Mono SC.
+cask "font-meslo-for-powerlevel10k"
+cask "font-sarasa-gothic"
+
 cask "emacs-app"
 
 # macOS workstation applications. WezTerm is installed by its own component.

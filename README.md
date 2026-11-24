@@ -18,6 +18,9 @@ SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Ta
 
 macOS 完整安装包含 WezTerm、BetterDisplay、Maccy 和 Ice（`jordanbaird-ice`），另提供可选的完整版 MacTeX（含图形应用）。
 WezTerm 由独立组件安装，BetterDisplay、Maccy 和 Ice 由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
+字体也在平台阶段自动安装：`font-meslo-for-powerlevel10k` 提供 Emacs/WezTerm 使用的 `MesloLGS NF`
+（常规、粗体、斜体、粗斜体），`font-sarasa-gothic` 提供 Emacs 首选中文字体 `Sarasa Mono SC`。
+这些字体在编辑器和终端启动前安装，并随 `workbench platform check` 检查。
 MacTeX 使用 [官方通过 CTAN 分发的 PKG](https://ctan.org/tex-archive/systems/mac/mactex)，不经过 Homebrew。
 macOS 方案的其他安装与检查全部成功后，弹窗询问是否安装，默认“稍后安装”；SSH 使用终端询问，
 非交互运行自动跳过。跳过不影响整机检查，已有完整 MacTeX 也不会重复下载。
