@@ -32,13 +32,6 @@ macOS 使用官方 PKG（验证签名与 Gatekeeper，复用终端 sudo 授权�
 用独立 Pixi 环境提供运行库，并创建应用菜单入口，不修改 SteamOS 只读系统。
 首次使用从应用菜单打开 CrossDesk，按系统提示授予屏幕录制、辅助功能等权限。
 
-Mac 的完整安装还包含 [Snug](https://github.com/zephyr4123/snug)，适用于 macOS 14+（Apple 芯片与 Intel）。
-使用官方 GitHub 最新正式版通用 DMG，校验 SHA256、代码签名与 Gatekeeper 后安装至 `/Applications/Snug.app`；
-已有安装会保留，显式更新使用 `wb snug update`。也可单独运行 `wb snug install`、`wb snug check` 或 `wb snug list`。
-Snug 目前没有官方 Linux 包，因此 Linux 完整安装包含 CrossDesk，不安装 Snug；`base` 仍仅安装基础命令行环境。
-首次打开 Snug 后授予辅助功能权限；配合 CrossDesk 时，在 Snug 的“屏幕”设置中开启“提前准备虚拟屏”，
-再手动退出并重开 CrossDesk。安装脚本不自动改变显示设置或中断远程会话；更新前请先退出正在运行的 Snug。
-
 ```sh
 wb crossdesk install  # 补齐缺失安装；已有可用安装直接跳过
 wb crossdesk update   # 查询并安装官方最新正式版

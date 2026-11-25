@@ -60,8 +60,6 @@ install/update 先解析 `requires` 中的具体组件，再补齐需要的 uv/P
 这些命令用于整机方案、配置部署、扩展脚手架、后端管理和平台前提，不参与软件用途分类。
 
 `profiles/*.toml` 组合明确的组件操作，可使用 extends 继承其他方案。步骤字段为 component/action/args。
-步骤可选 `platforms` 限定执行平台，继承后仍按实际主机筛选；例如 workstation 中 Snug 的安装和检查仅用于 macOS。
-未声明该字段的步骤继续在方案支持的全部平台执行，组件自身的平台限制仍由计划器检查。
 安装/更新后执行方案的完整 check；相同依赖步骤去重。默认 Steam Deck 选择 steamdeck，其余选择 workstation。
 `after_install` 中的步骤只在 `system install` 的安装和检查全部成功后执行，也支持继承。
 macOS 用它调用 `texlive offer`，询问是否安装官方 MacTeX PKG；拒绝或非交互运行时跳过，

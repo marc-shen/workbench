@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO / 'lib'))
 from workbench.platforms import detect
 
 UPSTREAM = 'kunkundi/crossdesk'
+API = f'https://api.github.com/repos/{UPSTREAM}/releases/latest'
 MAC_APP = Path('/Applications/CrossDesk.app')
 # Linux releases bundle Slint, but depend on these desktop/runtime libraries.
 # Keep them in a private environment on Fedora/SteamOS, never alter SteamOS root.
@@ -37,15 +38,15 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def latest(upstream=UPSTREAM, label='CrossDesk'):
+def latest():
     result = sp.run(['curl', '-fsSL', '--connect-timeout', '20', '--max-time', '90',
-                     '--retry', '2', f'https://api.github.com/repos/{upstream}/releases/latest'], capture_output=True, text=True)
+                     '--retry', '2', API], capture_output=True, text=True)
     # Public API limits are low on shared networks. Reuse gh authentication if available.
     if result.returncode and shutil.which('gh'):
-        result = sp.run(['gh', 'api', f'repos/{upstream}/releases/latest'],
+        result = sp.run(['gh', 'api', f'repos/{UPSTREAM}/releases/latest'],
                         capture_output=True, text=True)
     if result.returncode:
-        raise RuntimeError('无法获取 ' + label + ' 最新版本：' + result.stderr.strip())
+        raise RuntimeError('无法获取 CrossDesk 最新版本：' + result.stderr.strip())
     data = json.loads(result.stdout)
     if data.get('draft') or data.get('prerelease'):
         raise RuntimeError('GitHub 返回了非正式版，停止安装')
@@ -74,8 +75,8 @@ def select_asset(release, host, machine):
     return asset, expected.split(':')[1].lower()
 
 
-def download(root, asset, expected, component='crossdesk'):
-    package = root / 'downloads' / component / asset['name']
+def download(root, asset, expected):
+    package = root / 'downloads/crossdesk' / asset['name']
     package.parent.mkdir(parents=True, exist_ok=True)
     if package.is_file() and digest(package) == expected:
         print('[SKIP] 复用已校验安装包', flush=True)
@@ -89,7 +90,7 @@ def download(root, asset, expected, component='crossdesk'):
     run([*command, asset['browser_download_url']])
     if digest(partial) != expected:
         partial.unlink()
-        raise RuntimeError(component + ' SHA256 不匹配；已移除损坏下载，请重试')
+        raise RuntimeError('CrossDesk SHA256 不匹配；已移除损坏下载，请重试')
     partial.replace(package)
     return package
 
