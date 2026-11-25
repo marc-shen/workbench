@@ -120,6 +120,7 @@ class MacNetworkTests(unittest.TestCase):
 
     def test_existing_tailscale_does_not_download_or_reset_login(self):
         with mock.patch.object(mac.macos_tailscale,'install') as install, \
+             mock.patch.object(mac.tailscale_variants,'mode',return_value='server'), \
              mock.patch.object(mac.urllib.request,'urlopen') as fetch, mock.patch.object(mac,'admin') as admin:
             mac.install_tailscale(self.root)
         install.assert_called_once_with(self.root,False)

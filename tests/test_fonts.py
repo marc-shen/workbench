@@ -25,20 +25,30 @@ class FontTests(unittest.TestCase):
         self.sarasa='font-sarasa-gothic'
 
     def test_check_reports_missing_font_and_does_not_refresh_or_install(self):
-        result=subprocess.CompletedProcess([],0,f'{self.meslo} 2.3.3\nwezterm 1.0\n','')
-        with patch.object(fonts.subprocess,'run',return_value=result) as run, \
+        listed=subprocess.CompletedProcess([],0,f'{self.meslo}\nkeepresso\n','')
+        result=subprocess.CompletedProcess([],0,f'{self.meslo} 2.3.3\n','')
+        with patch.object(fonts.subprocess,'run',side_effect=[listed,result]) as run, \
              patch.object(fonts,'stream_command') as refresh,patch.object(fonts,'install') as install:
             self.assertEqual(fonts.font_action('check',[],REPO,'macos'),1)
-            self.assertEqual(run.call_args.args[0],['/fake/brew','list','--cask','--versions'])
+            self.assertEqual(run.call_args_list[0].args[0],['/fake/brew','list','--cask','-1'])
+            self.assertEqual(run.call_args.args[0],['/fake/brew','list','--cask','--versions',self.meslo])
             refresh.assert_not_called();install.assert_not_called()
         self.assertIn('[MISSING] '+self.sarasa,self.output.getvalue())
-        self.assertNotIn('wezterm',self.output.getvalue())
+        self.assertNotIn('keepresso',self.output.getvalue())
+
+    def test_no_installed_fonts_never_loads_unrelated_cask_definitions(self):
+        listed=subprocess.CompletedProcess([],0,'keepresso\n','')
+        with patch.object(fonts.subprocess,'run',return_value=listed) as run:
+            self.assertEqual(fonts.font_action('list',[],REPO,'macos'),0)
+        self.assertEqual(run.call_count,1)
+        self.assertIn('[MISSING] '+self.meslo,self.output.getvalue())
 
     def test_outdated_reports_versions_and_accepts_brew_updates_exit_status(self):
+        listed=subprocess.CompletedProcess([],0,f'{self.meslo}\n{self.sarasa}\nkeepresso\n','')
         installed=subprocess.CompletedProcess([],0,f'{self.meslo} 2.3.2\n{self.sarasa} 1.0.43\n','')
         result=subprocess.CompletedProcess([],1,json.dumps({'formulae':[], 'casks':[
             {'name':self.meslo,'installed_versions':['2.3.2'],'current_version':'2.3.3'}]}),'')
-        with patch.object(fonts.subprocess,'run',side_effect=[installed,result]) as run, \
+        with patch.object(fonts.subprocess,'run',side_effect=[listed,installed,result]) as run, \
              patch.object(fonts,'stream_command',return_value=0) as refresh,patch.object(fonts,'install') as install:
             self.assertEqual(fonts.font_action('outdated',[],REPO,'macos'),0)
             refresh.assert_called_once_with(['/fake/brew','update'],label='字体更新索引')

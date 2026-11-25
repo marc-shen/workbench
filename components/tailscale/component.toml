@@ -20,11 +20,15 @@ description = "检查配置和安装状态"
 [actions.install]
 description = "补齐缺失项目，保留已有安装"
 
+[actions.install.options]
+"--mode=personal" = "macOS 个人使用：官网图形版（新机默认）"
+"--mode=server" = "macOS 服务器：tailscaled 系统服务"
+
 [actions.update]
 description = "显式更新已选择的项目"
 
 [actions.apply]
-description = "首次授权、安装系统服务并启用"
+description = "首次授权并启用所选客户端"
 
 [actions.start]
 description = "启动后台"
@@ -45,15 +49,17 @@ description = "查看日志"
 description = "打开客户端或网页"
 
 [actions.show]
-description = "查看实际 DNS 与出口节点设置（只读）"
+description = "查看实际 DNS、子网路由与出口节点设置（只读）"
 
 [actions.set]
-description = "设置 DNS、提供出口或使用出口节点，默认关闭"
+description = "设置 DNS、子网路由、提供出口或使用出口节点"
 arguments = ""
 
 [actions.set.options]
 "--accept-dns=false" = "关闭接受 Tailscale DNS（默认）"
 "--accept-dns=true" = "接受 Tailscale DNS 配置"
+"--accept-routes=false" = "不接受其他设备发布的子网路由"
+"--accept-routes=true" = "接受子网路由，无需使用出口节点"
 "--advertise-exit-node=false" = "不提供出口节点（默认）"
 "--advertise-exit-node=true" = "让本机提供出口节点"
 "--exit-node=false" = "不使用其他出口节点（默认）"

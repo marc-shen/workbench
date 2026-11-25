@@ -57,7 +57,7 @@ def conflict_check():
                        stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     if any(app.exists() for app in apps) or extension.returncode == 0:
         raise RuntimeError('检测到 Tailscale GUI 版。请在本机退出并卸载 Tailscale.app、清空废纸篓并重启，'
-                           '然后重跑 wb tailscale install；旧 GUI 登录身份不会自动迁移。'
+                           '然后重跑 wb tailscale install --mode=server；旧 GUI 登录身份不会自动迁移。'
                            '请勿通过当前 Tailscale SSH 连接执行卸载。')
     if loaded('com.tailscale.tailscaled') or Path('/Library/LaunchDaemons/com.tailscale.tailscaled.plist').exists():
         raise RuntimeError('检测到 install-system-daemon 安装的 tailscaled；请先在本机运行 '

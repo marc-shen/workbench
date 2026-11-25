@@ -54,10 +54,26 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.parse(['--exit-node=']), {'exit-node': False})
 
     def test_invalid_and_contradictory_arguments_are_rejected(self):
-        for args in ([], ['--accept-dns=yes'], ['--exit-node=true'], ['--dns=false'],
+        for args in ([], ['--accept-dns=yes'], ['--accept-routes=yes'], ['--exit-node=true'], ['--dns=false'],
                      ['--advertise-exit-node=true', '--exit-node=server'], ['--exit-node=--reset']):
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit): settings.parse(args)
+
+    def test_subnet_routes_are_explicit_and_preserved_across_login(self):
+        self.assertNotIn('accept-routes', settings.DEFAULTS)
+        self.assertEqual(settings.parse(['--accept-routes=true', '--exit-node=false']),
+                         {'accept-routes': True, 'exit-node': False})
+        for enabled in (True, False):
+            prefs = {'CorpDNS': False, 'RouteAll': enabled}
+            with patch.object(settings.sp, 'run', return_value=Mock(returncode=0, stdout=json.dumps(prefs))):
+                self.assertIn('--accept-routes=' + str(enabled).lower(), settings.login_flags(self.cli))
+                settings.show(self.cli)
+            self.assertIn('accept-routes: ' + str(enabled).lower(), self.output.getvalue())
+
+    def test_invalid_route_preference_is_not_reported_as_a_real_value(self):
+        with patch.object(settings.sp, 'run', return_value=Mock(returncode=0, stdout='{"CorpDNS":false,"RouteAll":"false"}')):
+            with self.assertRaisesRegex(RuntimeError, '设置格式'):
+                settings.preferences(self.cli)
 
     def test_show_reads_actual_preferences_and_never_prints_identity_data(self):
         prefs = {'CorpDNS': False, 'AdvertiseRoutes': ['10.0.0.0/24', '::/0'],
@@ -106,8 +122,10 @@ class SettingsTests(unittest.TestCase):
 
     def test_dispatch_uses_correct_platform_cli_and_preserves_unrelated_options(self):
         import macos_tailscale as mac
+        import macos_tailscale_mode as variants
         for host in ('macos', 'steamdeck'):
             with patch.object(builtin, 'ROOT', self.root), patch.object(builtin, 'detect', return_value=host), \
+                    patch.object(variants, 'mode', return_value='server'), \
                     patch.object(settings, 'apply') as apply:
                 self.assertEqual(builtin.main('tailscale', ['set', '--accept-dns=false']), 0)
             args = apply.call_args.args
@@ -117,11 +135,12 @@ class SettingsTests(unittest.TestCase):
     def test_help_completion_and_dry_run_work_without_changing_settings(self):
         env = dict(os.environ, SOFTWARE_HOME=str(self.root), WORKBENCH_BOOTSTRAP_PYTHON=sys.executable)
         for args in (['tailscale', 'set', '--help'], ['--complete', 'options', 'tailscale', 'set'],
-                     ['tailscale', 'set', '--accept-dns=false', '--exit-node=false', '--plan', '--json']):
+                     ['tailscale', 'set', '--accept-dns=false', '--exit-node=false', '--accept-routes=true', '--plan', '--json']):
             result = sp.run([sys.executable, REPO / 'bin/workbench', *args], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('--accept-dns=false', result.stdout)
             self.assertIn('--exit-node=', result.stdout)
+            self.assertIn('--accept-routes=true', result.stdout)
         self.assertFalse(settings.marker(self.root).exists())
 
 

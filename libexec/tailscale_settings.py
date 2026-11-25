@@ -27,6 +27,7 @@ def exit_node(value):
 def parse(argv):
     parser = argparse.ArgumentParser(prog='wb tailscale set', allow_abbrev=False)
     parser.add_argument('--accept-dns', type=boolean)
+    parser.add_argument('--accept-routes', type=boolean)
     parser.add_argument('--advertise-exit-node', type=boolean)
     parser.add_argument('--exit-node', type=exit_node)
     options = {key.replace('_', '-'): value for key, value in vars(parser.parse_args(argv)).items() if value is not None}
@@ -47,9 +48,9 @@ def flags(settings):
             for key, value in settings.items()]
 
 
-def apply(root, command, privileged, changes=None):
+def apply(root, command, privileged, changes=None, *, marker_path=None):
     """The daemon persists values. The marker only prevents resetting user choices."""
-    path = marker(root)
+    path = marker(root) if marker_path is None else marker_path
     first = not path.is_file()
     settings = {**DEFAULTS, **(changes or {})} if first else dict(changes or {})
     if not settings:
@@ -71,12 +72,14 @@ def apply(root, command, privileged, changes=None):
 def preferences(command):
     result = sp.run([*map(str, command), 'debug', 'prefs'], capture_output=True, text=True, timeout=15)
     if result.returncode:
-        raise RuntimeError('无法读取 Tailscale 设置；请先启动 tailscaled，再运行 wb tailscale show')
+        raise RuntimeError('无法读取 Tailscale 设置；请先运行 wb tailscale start，再运行 wb tailscale show')
     try:
         prefs = json.loads(result.stdout)
         dns = prefs['CorpDNS']
         if not isinstance(dns, bool):
             raise ValueError('CorpDNS is not a boolean')
+        if 'RouteAll' in prefs and not isinstance(prefs['RouteAll'], bool):
+            raise ValueError('RouteAll is not a boolean')
         routes = prefs.get('AdvertiseRoutes') or []
         if not isinstance(routes, list):
             raise ValueError('AdvertiseRoutes is not a list')
@@ -87,9 +90,12 @@ def preferences(command):
 
 def values(prefs):
     routes = prefs.get('AdvertiseRoutes') or []
-    return {'accept-dns': prefs['CorpDNS'],
+    selected = {'accept-dns': prefs['CorpDNS'],
             'advertise-exit-node': '0.0.0.0/0' in routes or '::/0' in routes,
             'exit-node': prefs.get('ExitNodeIP') or prefs.get('ExitNodeID') or False}
+    if 'RouteAll' in prefs:
+        selected['accept-routes'] = prefs['RouteAll']
+    return selected
 
 
 def login_flags(command):

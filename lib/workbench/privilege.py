@@ -1,5 +1,7 @@
 """Keep the terminal's sudo ticket alive for one installation workflow."""
 from contextlib import contextmanager
+import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -18,7 +20,16 @@ def needs_admin(steps):
 
 
 @contextmanager
-def sudo_session(steps, platform):
+def sudo_session(steps, platform, root=None):
+    if platform == 'macos' and any(step['component'] == 'tailscale' for step in steps):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'libexec'))
+        import macos_tailscale_mode as variants
+        root = root if root is not None else Path(os.environ.get('SOFTWARE_HOME', Path.home() / 'Software'))
+        if variants.mode(root) == 'personal':
+            # The app's LocalAPI runs as the logged-in user. Only installation
+            # (including apply on a fresh machine) needs an administrator ticket.
+            steps = [step for step in steps if step['component'] != 'tailscale'
+                     or step['action'] in ('install', 'update', 'apply')]
     if platform != 'macos' or not sys.stdin.isatty() or not needs_admin(steps):
         yield
         return

@@ -152,6 +152,7 @@ class TailscaledTests(unittest.TestCase):
         target = '/opt/homebrew/opt/tailscale'
         with patch.object(sys, 'argv', ['macos_network.py', '--prefix', str(self.root), 'tailscale', 'install']), \
                 patch.object(mac.platform, 'system', return_value='Darwin'), patch.object(mac.os, 'umask'), \
+                patch.object(mac.tailscale_variants, 'mode', return_value='server'), \
                 patch.object(ts, 'action', side_effect=PermissionError(13, 'Permission denied', target)):
             with self.assertRaisesRegex(RuntimeError, target): mac.main()
 

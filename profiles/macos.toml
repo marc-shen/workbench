@@ -1,5 +1,5 @@
 schema = 1
-description = "macOS 完整工作站、Mihomo 网页客户端与 tailscaled 系统服务"
+description = "macOS 完整工作站、Mihomo 网页客户端与可选图形版/服务器版 Tailscale"
 platforms = ["macos"]
 extends = ["workstation"]
 

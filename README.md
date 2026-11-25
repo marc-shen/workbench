@@ -14,10 +14,13 @@ cd ~/Software/src/workbench
 
 `install.sh` 补齐系统引导前提，准备 Python 3.12，再执行整机安装与检查。
 macOS 初次安装需要 Apple Command Line Tools；整机安装在终端验证一次 sudo，并在任务期间自动续期。
-macOS Tailscale 改用 Homebrew formula 的 root 级 `tailscaled` 服务，登录前即可运行；首次登录使用 `wb tailscale apply`。
-已有 GUI 版需先在本机卸载并重启后迁移，详见 [macOS 网络说明](docs/macos-network.md)。Linux 的原生依赖可能需要 sudo。
+macOS Tailscale 新安装可选择用途：个人使用默认官网图形版（`wb tailscale install --mode=personal`），
+服务器使用登录前即可运行的 `tailscaled`（`--mode=server`）。已有安装和后续更新沿用原模式，首次授权使用 `wb tailscale apply`。
+两种模式的授权与迁移方法见 [macOS 网络说明](docs/macos-network.md)。Linux 的原生依赖可能需要 sudo。
 Tailscale（macOS/Steam Deck）首次配置默认关闭接受 DNS、提供出口、使用其他出口；之后保留用户选择。
 用 `wb tailscale show` 查看实际值，用 `wb tailscale set --accept-dns=false --advertise-exit-node=false --exit-node=false` 关闭这三项。
+仅访问远端局域网可用 `wb tailscale set --accept-routes=true --exit-node=false`，互联网仍由本机 Mihomo 分流。
+Mac 使用出口节点前会检查托管 Mihomo 的实时 TUN 状态，避免两者争用路由导致网页无法访问。
 SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录由本机用户完成。
 Mihomo 无订阅也会完整安装并提供本机/Tailscale 控制页面；之后填写 `Software/config/mihomo/subscription.url` 并运行 `wb mihomo update` 生效。
 

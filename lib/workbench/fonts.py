@@ -40,12 +40,23 @@ def font_action(action, args, repo, platform):
         code = stream_command([brew, 'update'], label='字体更新索引')
         if code:
             return code
-    result = subprocess.run([brew, 'list', '--cask', '--versions'], env=env, capture_output=True, text=True)
+    # Listing names does not load every cask definition. Loading an unrelated,
+    # untrusted tap here used to break even a read-only font check.
+    result = subprocess.run([brew, 'list', '--cask', '-1'], env=env, capture_output=True, text=True)
     if result.returncode:
         console.print(result.stderr)
         return result.returncode
-    versions = {parts[0]: ' '.join(parts[1:]) for line in result.stdout.splitlines()
-                if len(parts := line.split()) > 1}
+    installed_casks = set(result.stdout.splitlines())
+    selected = [name for name in names if name in installed_casks]
+    versions = {}
+    if selected:
+        result = subprocess.run([brew, 'list', '--cask', '--versions', *selected],
+                                env=env, capture_output=True, text=True)
+        if result.returncode:
+            console.print(result.stderr)
+            return result.returncode
+        versions = {parts[0]: ' '.join(parts[1:]) for line in result.stdout.splitlines()
+                    if len(parts := line.split()) > 1}
     available = {}
     installed_names = [name for name in names if name in versions]
     if action == 'outdated' and installed_names:

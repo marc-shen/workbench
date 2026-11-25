@@ -21,11 +21,17 @@ def fetch(url,dest):
 def host_platform():return {('Darwin','arm64'):'osx-arm64',('Darwin','x86_64'):'osx-64',('Linux','x86_64'):'linux-64',('Linux','aarch64'):'linux-aarch64'}[(platform.system(),platform.machine())]
 def atomic_link(src,dest,root):
  dest.parent.mkdir(parents=True,exist_ok=True)
- if dest.is_symlink() and dest.resolve()==src.resolve():return
- if dest.exists() or dest.is_symlink():
+ if dest.is_symlink():
+  try:
+   if dest.resolve()==src.resolve():return
+  except PermissionError:
+   # A root-owned Homebrew opt link may be unreadable. Back up the managed
+   # link itself and replace it without traversing or modifying its target.
+   pass
+ if dest.is_symlink() or dest.exists():
   backup=root/'backups'/('switch-'+STAMP)/dest.relative_to(root)
   backup.parent.mkdir(parents=True,exist_ok=True)
-  if not backup.exists() and not backup.is_symlink():
+  if not backup.is_symlink() and not backup.exists():
    if dest.is_symlink():backup.symlink_to(os.readlink(dest))
    elif dest.is_file():shutil.copy2(dest,backup)
    else:raise RuntimeError('Refusing to replace directory: '+str(dest))

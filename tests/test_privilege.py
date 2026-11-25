@@ -58,5 +58,15 @@ class PrivilegeTests(unittest.TestCase):
                 self.assertEqual(run.call_args.args[0],['/usr/bin/sudo',*([] if interactive else ['-n']),
                     '--','/usr/sbin/installer','-pkg','/tmp/a b.pkg','-target','/'])
 
+    def test_gui_connection_and_settings_do_not_request_sudo(self):
+        import macos_tailscale_mode as variants
+        with patch.object(variants, 'mode', return_value='personal'), \
+                patch.object(privilege.sys.stdin, 'isatty', return_value=True), \
+                patch.object(privilege.subprocess, 'run') as run:
+            for action in ('start', 'stop', 'restart', 'set', 'show'):
+                with privilege.sudo_session([{'component': 'tailscale', 'action': action}], 'macos'):
+                    pass
+        run.assert_not_called()
+
 
 if __name__=='__main__':unittest.main()

@@ -95,9 +95,10 @@ def main(name, argv):
             changes = tailscale_settings.parse(args) if action == 'set' else None
             if action == 'show' and args: raise RuntimeError('tailscale show takes no arguments')
             if platform == 'macos':
-                import macos_tailscale
-                command = [macos_tailscale.binary(), '--socket=' + macos_tailscale.SOCKET]
-                privileged = macos_tailscale.admin
+                import macos_tailscale_mode as variants
+                if action == 'show': tailscale_settings.show(variants.command(ROOT))
+                else: variants.configure(ROOT, changes)
+                return 0
             else:
                 command = ['/opt/tailscale/tailscale']
                 def privileged(command):
@@ -105,6 +106,8 @@ def main(name, argv):
             if action == 'show': tailscale_settings.show(command)
             else: tailscale_settings.apply(ROOT, command, privileged, changes)
             return 0
+        if service == 'tailscale' and platform == 'macos' and action == 'install':
+            return backend('macos_network.py', service, action, *args)
         if args: raise RuntimeError(name + ' takes no targets')
         if action == 'list':
             Console().table([(name, spec['description']), ('operations', ' '.join(spec['actions']))]); return 0

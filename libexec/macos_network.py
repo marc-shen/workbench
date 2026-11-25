@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""macOS network components: native Mihomo and tailscaled system services."""
+"""macOS network components: native Mihomo and selectable Tailscale clients."""
 import argparse
 import copy
 import gzip
@@ -20,6 +20,7 @@ import urllib.request
 
 from config_data import read
 import macos_tailscale
+import macos_tailscale_mode as tailscale_variants
 from deck_network import archive, write, link
 from mihomo_setup import PENDING, load_optional, pending_config, prepare_subscription_file, mark_subscription_state, configuration_lock
 
@@ -30,7 +31,7 @@ SYSTEM = Path('/Library/Application Support/Workbench/mihomo')
 DAEMON = Path('/Library/LaunchDaemons') / (LABEL + '.plist')
 VERGE_LABEL = 'io.github.clash-verge-rev.clash-verge-rev'
 VERGE = Path.home() / 'Library/Application Support' / VERGE_LABEL
-TSBIN = macos_tailscale.binary()
+TSBIN = tailscale_variants.binary(ROOT)
 
 
 def run(args, **kwargs):
@@ -213,7 +214,8 @@ def plist_write(path, data):
 
 
 def serve_state():
-    result = run([TSBIN, 'serve', 'status', '--json'], capture_output=True, text=True, timeout=15)
+    result = run([TSBIN, 'serve', 'status', '--json'], capture_output=True, text=True, timeout=15,
+                 env=dict(os.environ, TAILSCALE_BE_CLI='1'))
     return json.loads(result.stdout) or {}
 
 
@@ -231,9 +233,10 @@ def expose_dashboard(root):
     path = root/'config/mihomo/config.yaml'
     if not TSBIN.exists() or not path.exists():return False
     try:
-        result = run([TSBIN, 'status', '--json'], capture_output=True, text=True, timeout=15)
+        result = run([TSBIN, 'status', '--json'], capture_output=True, text=True, timeout=15,
+                     env=dict(os.environ, TAILSCALE_BE_CLI='1'))
     except (OSError, sp.SubprocessError):
-        print('Tailscale 控制页面待连接：请运行 wb tailscale start / apply 启动系统服务并登录；后台会自动重试。')
+        print('Tailscale 控制页面待连接：请运行 wb tailscale start / apply 启动客户端并登录；后台会自动重试。')
         return False
     status = json.loads(result.stdout)
     if status.get('BackendState') != 'Running':
@@ -269,7 +272,8 @@ def expose_dashboard(root):
             raise RuntimeError('Tailnet dashboard configuration failed; previous runtime restored') from None
         dump_yaml(path, config)
     if not dashboard_shared(state):
-        run([TSBIN, 'serve', '--bg', '--yes', '--tcp=9090', 'tcp://127.0.0.1:9090'], timeout=30)
+        run([TSBIN, 'serve', '--bg', '--yes', '--tcp=9090', 'tcp://127.0.0.1:9090'], timeout=30,
+            env=dict(os.environ, TAILSCALE_BE_CLI='1'))
         if not dashboard_shared():raise RuntimeError('Tailscale dashboard forwarding could not be verified')
         print('Tailscale 控制页面：' + (origins[0] if origins else 'http://<Tailscale-IP>:9090') + '/ui/')
     return True
@@ -403,17 +407,20 @@ def apply(root):
 
 
 def tailscale_installed():
-    return macos_tailscale.installed()
+    if tailscale_variants.mode(ROOT) == 'server':
+        return macos_tailscale.installed()
+    import macos_tailscale_gui
+    return macos_tailscale_gui.installed()
 
 
 def install_tailscale(root, update=False):
-    return macos_tailscale.install(root, update)
+    return tailscale_variants.action(root, 'update' if update else 'install')
 
 
 def status(root, service, check=False):
     issues=[]
     if service=='tailscale':
-        return macos_tailscale.status(check)
+        return tailscale_variants.action(root, 'check' if check else 'status')
     else:
         service_result=sp.run(['launchctl','print','system/'+LABEL],capture_output=True,text=True)
         if service_result.returncode:issues.append('LaunchDaemon is not loaded: workbench mihomo apply')
@@ -446,14 +453,20 @@ def pending(root):
 
 
 def main():
+    global TSBIN
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prefix',type=Path,default=ROOT)
     p.add_argument('service',choices=['mihomo','tailscale']);p.add_argument('action',choices=['install','update','apply','start','stop','restart','status','check','logs','open','expose'])
+    p.add_argument('--mode', choices=tailscale_variants.MODES)
     a=p.parse_args();root=a.prefix.resolve();os.umask(0o077)
     if platform.system()!='Darwin':p.error('This backend requires macOS')
+    if a.mode and (a.service != 'tailscale' or a.action != 'install'):
+        p.error('--mode 仅用于 tailscale install')
+    TSBIN = tailscale_variants.binary(root)
     if a.service=='tailscale':
         try:
             if a.action in ('status','check'):return status(root,a.service,a.action=='check')
-            code = macos_tailscale.action(root, a.action)
+            code = tailscale_variants.action(root, a.action, a.mode)
+            TSBIN = tailscale_variants.binary(root)
             if (not code and a.action=='apply' and (root/'config/mihomo/config.yaml').exists()
                     and ensure_yaml(root,'mihomo','expose')):
                 expose_dashboard(root)
