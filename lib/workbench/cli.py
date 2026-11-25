@@ -49,6 +49,12 @@ def workflow(components, action, args, repo, root, platform):
     for item in entries:
         if not item.get('component') or 'module' in item:
             raise RuntimeError('Installation profile requires component fields: ' + profile)
+        if 'platforms' in item:
+            if (not isinstance(item['platforms'], list) or not item['platforms']
+                    or any(not isinstance(p, str) or p not in SUPPORTED for p in item['platforms'])):
+                raise RuntimeError('Invalid step platforms in installation profile: ' + profile)
+            if platform not in item['platforms']:
+                continue
         operation = item['action']
         if action == 'update' and operation == 'install':
             operation = 'update'

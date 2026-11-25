@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'libexec'))
 sys.path.insert(0, str(REPO / 'lib'))
 import crossdesk as cd
-from workbench.cli import load_profile
+from workbench.cli import load_profile, workflow
 from workbench.registry import discover
 from workbench.engine import plan
 from workbench.privilege import needs_admin
@@ -205,6 +205,13 @@ class CrossDeskTests(unittest.TestCase):
             self.assertIn('crossdesk', [step['component'] for step in profile[action]])
         components = discover(REPO, self.root)
         for host in ('macos', 'steamdeck', 'fedora', 'ubuntu', 'debian'):
+            profiles = ['workstation', *(['macos'] if host == 'macos' else ['scientific']),
+                        *(['steamdeck'] if host == 'steamdeck' else [])]
+            for profile_name in profiles:
+                for operation in ('install', 'update', 'check'):
+                    steps = workflow(components, operation, [profile_name], REPO, self.root, host)
+                    expected = 'update' if operation == 'update' else operation
+                    self.assertEqual(sum(s['component'] == 'crossdesk' and s['action'] == expected for s in steps), 1)
             for action in ('install', 'update'):
                 steps = plan(components, 'crossdesk', action, [], REPO, self.root, host)
                 self.assertEqual(steps[-1]['component'], 'crossdesk')

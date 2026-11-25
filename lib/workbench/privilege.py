@@ -12,7 +12,7 @@ from .ui import Console
 def needs_admin(steps):
     for step in steps:
         name, action = step['component'], step['action']
-        if (name in ('platform', 'emacs', 'texlive', 'crossdesk') and action in ('install', 'update', 'offer')
+        if (name in ('platform', 'emacs', 'texlive', 'crossdesk', 'snug') and action in ('install', 'update', 'offer')
                 or name == 'tailscale' and action in ('install', 'update', 'apply', 'start', 'stop', 'restart', 'set')
                 or name == 'mihomo' and action in ('apply', 'start', 'stop', 'restart')):
             return True

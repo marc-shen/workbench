@@ -148,6 +148,12 @@ action = "install"
 args = []
 
 [[install]]
+component = "snug"
+action = "install"
+args = []
+platforms = ["macos"]
+
+[[install]]
 component = "emacs"
 action = "start"
 args = ["service"]
@@ -281,6 +287,12 @@ args = []
 component = "crossdesk"
 action = "check"
 args = []
+
+[[check]]
+component = "snug"
+action = "check"
+args = []
+platforms = ["macos"]
 
 [[check]]
 component = "emacs"

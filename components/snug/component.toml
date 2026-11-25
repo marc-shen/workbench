@@ -1,0 +1,25 @@
+schema = 1
+name = "snug"
+description = "Snug 远程 Mac 显示与触控增强（官方 DMG，macOS 14+）"
+category = "network"
+tags = []
+platforms = ["macos"]
+requires = []
+entrypoint = ["{python}", "{repo}/libexec/snug.py"]
+arguments = ""
+
+[actions.list]
+description = "查看安装版本与位置"
+
+[actions.check]
+description = "检查应用版本、签名和系统兼容性"
+
+[actions.install]
+description = "安装官方最新正式版，保留已有安装"
+
+[actions.update]
+description = "更新至官方 GitHub 最新正式版"
+
+[install]
+kind = "macos-dmg"
+provider = "upstream"
