@@ -19,6 +19,22 @@
 (setenv "LC_ALL" nil)
 (setenv "LC_MESSAGES" "C")
 
+;; Bundled libgccjit can infer a nonexistent macOS version from newer Darwin
+;; releases (for example Darwin 27 -> macOS 18).  Set the real target before
+;; package initialization: advice can compile native trampolines during init.
+;; See https://github.com/jimeh/emacs-builds/issues/71.
+(defun my-native-comp-setup-macos-target ()
+  "Use this Mac's OS version for native compilation unless explicitly set."
+  (when (and (eq system-type 'darwin)
+             (member (getenv "MACOSX_DEPLOYMENT_TARGET") '(nil "")))
+    (let ((version (ignore-errors
+                     (car (process-lines "/usr/bin/sw_vers" "-productVersion")))))
+      (when (and version
+                 (string-match "\\`\\([0-9]+\\.[0-9]+\\)\\(?:\\.[0-9]+\\)?\\'" version))
+        (setenv "MACOSX_DEPLOYMENT_TARGET" (match-string 1 version))))))
+
+(my-native-comp-setup-macos-target)
+
 ;; Route keyboard input through the GTK input-method context instead of Emacs's
 ;; own XIM client.  With fcitx5 the XIM path never engages: keystrokes land in
 ;; the buffer raw and Shift-based Chinese/ASCII switching does nothing.  The GTK

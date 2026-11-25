@@ -1,0 +1,53 @@
+;;; test-emacs-native-comp.el --- macOS compiler target -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'cl-lib)
+;; Mocking built-in functions must not depend on a working native compiler.
+(setq native-comp-enable-subr-trampolines nil)
+(load (expand-file-name "../config/emacs/early-init.el"
+                        (file-name-directory load-file-name)) nil t)
+
+(ert-deftest native-comp-target-uses-real-macos-version ()
+  (dolist (initial '(nil ""))
+    (dolist (version '("28.0" "27.2.1" "27.2" "26.6.1" "15.7.2" "14.7.2" "11.7.10"))
+      (let ((process-environment (copy-sequence process-environment))
+            (system-type 'darwin))
+        (setenv "MACOSX_DEPLOYMENT_TARGET" initial)
+        (cl-letf (((symbol-function 'process-lines)
+                   (lambda (&rest args)
+                     (should (equal args '("/usr/bin/sw_vers" "-productVersion")))
+                     (list version))))
+          (my-native-comp-setup-macos-target)
+          (should (equal (getenv "MACOSX_DEPLOYMENT_TARGET")
+                         (mapconcat #'identity
+                                    (seq-take (split-string version "\\.") 2) "."))))))))
+
+(ert-deftest native-comp-target-preserves-explicit-setting ()
+  (let ((process-environment (copy-sequence process-environment))
+        (system-type 'darwin))
+    (setenv "MACOSX_DEPLOYMENT_TARGET" "11.0")
+    (cl-letf (((symbol-function 'process-lines)
+               (lambda (&rest _) (ert-fail "Must preserve the explicit target"))))
+      (my-native-comp-setup-macos-target)
+      (should (equal (getenv "MACOSX_DEPLOYMENT_TARGET") "11.0")))))
+
+(ert-deftest native-comp-target-does-not-probe-other-platforms ()
+  (dolist (system-type '(gnu/linux windows-nt))
+    (let ((process-environment (copy-sequence process-environment)))
+      (setenv "MACOSX_DEPLOYMENT_TARGET" nil)
+      (cl-letf (((symbol-function 'process-lines)
+                 (lambda (&rest _) (ert-fail "Must not run sw_vers"))))
+        (my-native-comp-setup-macos-target)
+        (should-not (getenv "MACOSX_DEPLOYMENT_TARGET"))))))
+
+(ert-deftest native-comp-target-ignores-failed-or-malformed-probe ()
+  (dolist (result '(nil "unknown" "27.2junk"))
+    (let ((process-environment (copy-sequence process-environment))
+          (system-type 'darwin))
+      (setenv "MACOSX_DEPLOYMENT_TARGET" nil)
+      (cl-letf (((symbol-function 'process-lines)
+                 (lambda (&rest _)
+                   (if result (list result) (error "sw_vers failed")))))
+        (my-native-comp-setup-macos-target)
+        (should-not (getenv "MACOSX_DEPLOYMENT_TARGET"))))))
+
+(ert-run-tests-batch-and-exit)
