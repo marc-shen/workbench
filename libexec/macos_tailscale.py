@@ -156,11 +156,13 @@ def install(root, update=False):
         service('start')
     wait_ready()
     operator()
+    from tailscale_settings import apply as apply_settings
+    apply_settings(root, [binary(), '--socket=' + SOCKET], admin)
     from software import atomic_link
     atomic_link(binary(), root / 'bin/tailscale', root)
     if not installed() or not loaded():
         raise RuntimeError('tailscaled 系统级 LaunchDaemon 安装检查失败')
-    print('tailscaled 系统服务已就绪；保留已有登录、路由与出口设置。首次登录：wb tailscale apply')
+    print('tailscaled 系统服务已就绪；查看 DNS/出口设置：wb tailscale show。首次登录：wb tailscale apply')
 
 
 def action(root, operation):
@@ -173,8 +175,14 @@ def action(root, operation):
             if not sys.stdin.isatty():
                 print('登录/连接待完成：请在终端运行 wb tailscale apply')
                 return 2
-            # No --reset / --force-reauth: retain existing node settings and keys.
-            admin([binary(), '--socket=' + SOCKET, 'up', '--timeout=60s'])
+            command = [binary(), '--socket=' + SOCKET]
+            if state['BackendState'] == 'Stopped':
+                # A bare up preserves all preferences. Even --timeout disables
+                # this CLI special case, so bound the subprocess instead.
+                admin([*command, 'up'], timeout=60)
+            else:
+                from tailscale_settings import login_flags
+                admin([*command, 'up', '--timeout=60s', *login_flags(command)])
         elif state['BackendState'] == 'NeedsMachineAuth':
             print('设备待管理员批准：https://login.tailscale.com/admin/machines')
             return 2

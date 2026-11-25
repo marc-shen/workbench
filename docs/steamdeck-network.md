@@ -1,8 +1,12 @@
 # Steam Deck 网络
 
 日常由 Mihomo 接管需要代理的流量，使用原生 HTTPS。网络组件仅包含 Mihomo 和 Tailscale。
-系统 DNS 由 NetworkManager、systemd-resolved 和 Tailscale 协作管理。SteamOS 保持只读，
+系统 DNS 由 NetworkManager、systemd-resolved 管理，Tailscale 默认不接管 DNS。SteamOS 保持只读，
 不修改 Steam 容器、证书库或客户端更新会覆盖的文件。
+
+Tailscale 默认 `accept-dns=false`、`advertise-exit-node=false`、不使用其他出口节点。
+用 `wb tailscale show` 查看实际值，`wb tailscale set --accept-dns=true` 等命令修改；
+选项和默认值初始化规则见 [DNS 与出口设置](macos-network.md#tailscale-dns-与出口设置)，Mac/Deck 共用。
 
 ## 当前路径
 

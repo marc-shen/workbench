@@ -75,11 +75,46 @@ https://example.net/extra-clash-subscription
 | `start / stop / restart` | 控制 LaunchDaemon，需要管理员授权 | 启动、停止或重启系统 LaunchDaemon，保留登录身份 |
 | `status / check` | 查看核心、TUN、网页及定时任务 | 检查 formula、系统服务及 Tailscale 健康状态 |
 | `open / logs` | 打开网页 / 读取核心日志 | 打开管理网页 / 读取 tailscaled.log |
+| `show / set` | — | 查看或修改 DNS、提供出口、使用出口节点 |
 
 `update` 当前仅更新 Mihomo 订阅；核心和网页版本由组件 TOML 固定，升级组件版本后重新
-install/apply 部署。Tailscale 已安装时 install 不重复安装、不变更现有连接偏好；显式 update
+install/apply 部署。Tailscale 已安装时 install 不重复安装；DNS/出口默认值仅首次初始化，之后保留用户选择；显式 update
 才更新。已加载 daemon 的 `Stopped` 表示用户主动断开，check 不会擅自连接；
 `wb tailscale stop` 则停止系统服务，check 会提示未加载。start/restart 只管理服务，不重置网络偏好。
+
+## Tailscale DNS 与出口设置
+
+macOS 和 Steam Deck 共用这些命令，参数已加入 Tab 补全。默认值分别为：
+
+| 选项 | 含义 | 默认 |
+| --- | --- | --- |
+| `--accept-dns` | 接受 Tailnet 下发的 DNS 配置 | `false` |
+| `--advertise-exit-node` | 让本机向其他设备提供互联网出口 | `false` |
+| `--exit-node` | 使用指定设备作为本机出口 | `false`，即不使用 |
+
+```sh
+wb tailscale show                         # 读取 daemon 实际设置，不修改配置
+wb tailscale set --accept-dns=false
+wb tailscale set --accept-dns=true
+wb tailscale set --advertise-exit-node=true
+wb tailscale set --advertise-exit-node=false
+wb tailscale set --exit-node=100.100.5.2   # 也支持节点名称
+wb tailscale set --exit-node=false        # 清除已选择的出口
+```
+
+`--exit-node=true` 没有指定哪台设备，因而不接受；本机提供出口请用 `--advertise-exit-node=true`。
+提供出口仍需 Tailnet 管理端批准，其他设备不会因此自动切换出口。使用出口与提供出口不能同时启用。
+设置通过原生 `tailscale set` 生效，不注销、不重启 daemon，不清空其他偏好。
+
+首次运行新版 install/apply（Deck 为 apply/update），或首次运行 `set`，会初始化上述三个默认值。
+已有安装也会在第一次初始化时关闭这三项；`set` 显式指定的值优先。
+成功后在 `Software/config/tailscale/defaults-applied.json` 记录初始化标记；实际选择由 Tailscale 自己持久保存。
+后续 install/update/apply 不再覆盖设置，单独修改 DNS 也不会改变出口选择。
+首次登录明确传递这几个值，避免 `tailscale up` 的默认 DNS 设置将其改回 true。
+新默认值仅在运行上述配置命令后生效，更新 Workbench 源码本身不会修改正在运行的网络。
+
+开源 macOS daemon 不会因此自动改写系统 DNS；此选项管理 Tailscale 的 DNS 接受偏好。
+Mihomo 已有的 `*.ts.net` DNS 转发和系统 DNS 配置保持独立。
 
 ## 路由与访问
 

@@ -196,10 +196,13 @@ def authorize(root, update=False):
     run(['git', '-C', checkout, 'diff', '--exit-code', 'HEAD', '--', 'tailscale.sh', 'override.conf'], stdout=sp.DEVNULL)
     run(['sudo', '/bin/bash', TEMPLATES / 'tailscale-privileged.sh', root, checkout,
          pwd.getpwuid(os.getuid()).pw_name, 'update-tailscale' if update else 'prepare'])
+    from tailscale_settings import apply as apply_settings
+    apply_settings(root, ['/opt/tailscale/tailscale'], lambda command: run(['sudo', *command]))
     if not update:
         result = sp.run(['/opt/tailscale/tailscale', 'status', '--json'], capture_output=True, text=True)
         if json.loads(result.stdout).get('BackendState') == 'NeedsLogin':
-            run(['sudo', '/opt/tailscale/tailscale', 'up'])
+            from tailscale_settings import login_flags
+            run(['sudo', '/opt/tailscale/tailscale', 'up', *login_flags(['/opt/tailscale/tailscale'])])
     print('Tailscale ready. Use workbench tailscale status or open.')
 
 

@@ -12,6 +12,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO / 'libexec'), str(REPO / 'lib')]
 import macos_tailscale as ts
 import macos_network as mac
+import tailscale_settings as settings
 from workbench.privilege import needs_admin
 
 
@@ -32,6 +33,8 @@ class TailscaledTests(unittest.TestCase):
             p = patch.object(ts, target, value); p.start(); self.addCleanup(p.stop)
         self.output = io.StringIO()
         p = patch('sys.stdout', self.output); p.start(); self.addCleanup(p.stop)
+        marker = settings.marker(self.root)
+        marker.parent.mkdir(parents=True); marker.write_text('{"schema":1}')
 
     def test_existing_loaded_daemon_keeps_identity_and_connection(self):
         ts.DAEMON.touch()
@@ -43,6 +46,7 @@ class TailscaledTests(unittest.TestCase):
         self.assertEqual((self.root / 'bin/tailscale').resolve(), self.bin / 'tailscale')
 
     def test_first_install_uses_formula_and_system_service(self):
+        settings.marker(self.root).unlink()
         for path in self.bin.iterdir(): path.unlink()
         commands = []
         def run(command, **kwargs):
@@ -55,7 +59,9 @@ class TailscaledTests(unittest.TestCase):
                 patch.object(ts, 'wait_ready'), patch.object(ts, 'operator'), patch.object(ts, 'run', side_effect=run), \
                 patch.object(ts, 'service', side_effect=service):
             ts.install(self.root)
-        self.assertEqual(commands, [[self.prefix / 'bin/brew', 'install', '--formula', 'tailscale']])
+        self.assertEqual(commands[0], [self.prefix / 'bin/brew', 'install', '--formula', 'tailscale'])
+        self.assertEqual(commands[1][-4:], ['set', '--accept-dns=false', '--advertise-exit-node=false', '--exit-node='])
+        self.assertTrue(settings.marker(self.root).is_file())
 
     def test_update_restarts_only_when_formula_binary_changes(self):
         ts.DAEMON.touch()
@@ -211,11 +217,19 @@ class TailscaledTests(unittest.TestCase):
 
     def test_login_is_bounded_and_does_not_reset_preferences(self):
         with patch.object(ts, 'install'), patch.object(ts, 'wait_ready', return_value={'BackendState': 'NeedsLogin'}), \
+                patch.object(settings, 'login_flags', return_value=['--accept-dns=false', '--advertise-exit-node=false', '--exit-node=']), \
                 patch.object(ts.sys.stdin, 'isatty', return_value=True), patch.object(ts, 'admin') as admin:
             ts.action(self.root, 'apply')
         command = admin.call_args.args[0]
-        self.assertEqual(command[-2:], ['up', '--timeout=60s'])
+        self.assertEqual(command[-5:], ['up', '--timeout=60s', '--accept-dns=false', '--advertise-exit-node=false', '--exit-node='])
         self.assertNotIn('--reset', command)
+
+    def test_reconnect_stopped_node_uses_bare_up_to_preserve_all_settings(self):
+        with patch.object(ts, 'install'), patch.object(ts, 'wait_ready', return_value={'BackendState': 'Stopped'}), \
+                patch.object(ts.sys.stdin, 'isatty', return_value=True), patch.object(ts, 'admin') as admin:
+            ts.action(self.root, 'apply')
+        self.assertEqual(admin.call_args.args[0][-1], 'up')
+        self.assertEqual(admin.call_args.kwargs, {'timeout': 60})
 
     def test_check_is_read_only_and_reports_unloaded_or_unauthenticated_daemon(self):
         for state, expected in [('Running', 0), ('Stopped', 0), ('NeedsLogin', 1), ('NeedsMachineAuth', 1)]:
@@ -236,9 +250,9 @@ class TailscaledTests(unittest.TestCase):
             admin.assert_not_called()
 
     def test_all_mutating_service_actions_share_sudo_session(self):
-        for action in ('install', 'update', 'apply', 'start', 'stop', 'restart'):
+        for action in ('install', 'update', 'apply', 'start', 'stop', 'restart', 'set'):
             self.assertTrue(needs_admin([dict(component='tailscale', action=action)]))
-        for action in ('check', 'status', 'logs', 'open'):
+        for action in ('check', 'status', 'logs', 'open', 'show'):
             self.assertFalse(needs_admin([dict(component='tailscale', action=action)]))
 
 

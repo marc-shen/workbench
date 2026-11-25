@@ -88,8 +88,24 @@ def main(name, argv):
     if kind == 'language-server':
         return backend('language-servers.py', {'list': 'plan', 'update': 'upgrade'}.get(action, action), install['storage_name'], *args)
     if kind == 'network':
-        if args: raise RuntimeError(name + ' takes no targets')
         service = install['service']
+        if service == 'tailscale' and action in ('set', 'show'):
+            sys.path.insert(0, str(REPO / 'libexec'))
+            import tailscale_settings
+            changes = tailscale_settings.parse(args) if action == 'set' else None
+            if action == 'show' and args: raise RuntimeError('tailscale show takes no arguments')
+            if platform == 'macos':
+                import macos_tailscale
+                command = [macos_tailscale.binary(), '--socket=' + macos_tailscale.SOCKET]
+                privileged = macos_tailscale.admin
+            else:
+                command = ['/opt/tailscale/tailscale']
+                def privileged(command):
+                    sp.run(['sudo', *map(str, command)], check=True)
+            if action == 'show': tailscale_settings.show(command)
+            else: tailscale_settings.apply(ROOT, command, privileged, changes)
+            return 0
+        if args: raise RuntimeError(name + ' takes no targets')
         if action == 'list':
             Console().table([(name, spec['description']), ('operations', ' '.join(spec['actions']))]); return 0
         if platform == 'macos':

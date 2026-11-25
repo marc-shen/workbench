@@ -44,6 +44,26 @@ description = "查看日志"
 [actions.open]
 description = "打开客户端或网页"
 
+[actions.show]
+description = "查看实际 DNS 与出口节点设置（只读）"
+
+[actions.set]
+description = "设置 DNS、提供出口或使用出口节点，默认关闭"
+arguments = ""
+
+[actions.set.options]
+"--accept-dns=false" = "关闭接受 Tailscale DNS（默认）"
+"--accept-dns=true" = "接受 Tailscale DNS 配置"
+"--advertise-exit-node=false" = "不提供出口节点（默认）"
+"--advertise-exit-node=true" = "让本机提供出口节点"
+"--exit-node=false" = "不使用其他出口节点（默认）"
+"--exit-node=" = "使用指定出口节点，填写 IP 或名称"
+
+[settings.defaults]
+accept-dns = false
+advertise-exit-node = false
+exit-node = false
+
 [install]
 kind = "network"
 provider = "upstream"
