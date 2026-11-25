@@ -143,6 +143,11 @@ action = "install"
 args = []
 
 [[install]]
+component = "crossdesk"
+action = "install"
+args = []
+
+[[install]]
 component = "emacs"
 action = "start"
 args = ["service"]
@@ -269,6 +274,11 @@ args = []
 
 [[check]]
 component = "wezterm"
+action = "check"
+args = []
+
+[[check]]
+component = "crossdesk"
 action = "check"
 args = []
 

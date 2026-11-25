@@ -54,6 +54,5 @@ repository = "https://github.com/tailscale-dev/deck-tailscale.git"
 revision = "4691bb20d492ae9b2f5121c3eaf6e2dc1950e73f"
 
 [install.macos]
-metadata = "https://pkgs.tailscale.com/stable/?mode=json"
-base_url = "https://pkgs.tailscale.com/stable/"
-team_id = "W5364U7YZB"
+formula = "tailscale"
+service = "homebrew.mxcl.tailscale"

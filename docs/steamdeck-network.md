@@ -92,7 +92,10 @@ workbench mihomo install
 workbench mihomo apply
 ```
 
-新机器需在 `~/Software/config/mihomo/subscription.url` 写入订阅并设置权限 600。
+新机器可以直接完成 install/apply，无需先填写订阅。核心、网页、服务和防火墙都会安装，
+页面可从本机及 Tailscale 访问；待配置阶段为 DIRECT 模式，关闭 TUN 和 DNS 接管。
+安装器创建权限 600 的 `~/Software/config/mihomo/subscription.url`，之后填入订阅并运行
+`wb mihomo update`。首次订阅验证成功后恢复正常规则模式和 TUN；无订阅的每日任务直接返回。
 文件支持每行一个 HTTP(S) URL、空行和整行 `#` 注释，重复 URL 只导入一次。
 第一个必须提供完整 Clash YAML（节点、策略组和规则）；后续只提取 Clash YAML 中的节点。
 各源生成本地文件代理提供者，可通过 `📚 全部订阅` → `📦 订阅 N` 选择额外来源。

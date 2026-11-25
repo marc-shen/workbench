@@ -42,7 +42,8 @@ def validate_document(document, index):
 def load(folder, refresh=False):
     import yaml
     source=folder/'subscription.url'
-    urls=urls_from_text(source.read_text()) if source.exists() else []
+    from mihomo_setup import has_subscription
+    urls=urls_from_text(source.read_text()) if has_subscription(folder) else []
     cache=folder/CACHE
     records=None
     if not refresh and cache.exists():

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""macOS network components: a native Mihomo LaunchDaemon and official Tailscale app."""
+"""macOS network components: native Mihomo and tailscaled system services."""
 import argparse
 import copy
 import gzip
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,9 @@ import urllib.parse
 import urllib.request
 
 from config_data import read
+import macos_tailscale
 from deck_network import archive, write, link
+from mihomo_setup import PENDING, load_optional, pending_config, prepare_subscription_file, mark_subscription_state, configuration_lock
 
 REPO = Path(__file__).resolve().parents[1]
 ROOT = Path(os.environ.get('SOFTWARE_HOME', Path.home() / 'Software'))
@@ -27,8 +30,7 @@ SYSTEM = Path('/Library/Application Support/Workbench/mihomo')
 DAEMON = Path('/Library/LaunchDaemons') / (LABEL + '.plist')
 VERGE_LABEL = 'io.github.clash-verge-rev.clash-verge-rev'
 VERGE = Path.home() / 'Library/Application Support' / VERGE_LABEL
-TSAPP = Path('/Applications/Tailscale.app')
-TSBIN = TSAPP / 'Contents/MacOS/Tailscale'
+TSBIN = macos_tailscale.binary()
 
 
 def run(args, **kwargs):
@@ -36,9 +38,8 @@ def run(args, **kwargs):
 
 
 def admin(args):
-    command = shlex.join(list(map(str, args)))
-    # argv avoids interpolating paths into AppleScript source. macOS owns the password UI.
-    run(['/usr/bin/osascript', '-e', 'on run argv\n do shell script (item 1 of argv) with administrator privileges\nend run', command])
+    # Share the workflow's terminal sudo ticket with Homebrew and PKG installers.
+    run(['/usr/bin/sudo', *([] if sys.stdin.isatty() else ['-n']), '--', *args])
 
 
 def api(root, method='GET', path='/configs', data=None):
@@ -70,21 +71,8 @@ def dump_yaml(path, data):
 
 
 def has_subscription(root):
-    source = root/'config/mihomo/subscription.url'
-    return source.exists() and any(line.strip() and not line.lstrip().startswith('#')
-                                   for line in source.read_text().splitlines())
-
-
-def skip_unconfigured(root):
-    """Skip only an unconfigured new installation, never conceal a broken setup."""
-    folder = root/'config/mihomo'
-    if (has_subscription(root) or (VERGE/'profiles.yaml').exists() or DAEMON.exists()
-            or any((folder/name).exists() for name in ('config.yaml', 'provider.yaml', 'subscriptions.json'))):
-        return False
-    print('[SKIP] Mihomo：未提供订阅，也没有可复用的本地配置；跳过安装、启用和服务检查。')
-    print('需要时在 '+str(folder/'subscription.url')+' 中填写订阅（权限 600），然后执行：')
-    print('  workbench mihomo install\n  workbench mihomo apply')
-    return True
+    from mihomo_setup import has_subscription as configured
+    return configured(root/'config/mihomo')
 
 
 def import_verge(root):
@@ -164,14 +152,21 @@ def install_assets(root):
           'window.__METACUBEXD_CONFIG__ = {defaultBackendURL: window.location.origin};\n')
 
 
+@configuration_lock
 def refresh(root, update=False):
     import yaml
     folder = root/'config/mihomo'
-    from mihomo_subscriptions import load, attach, save, prune
-    records=load(folder,refresh=update)
-    provider=records[0]['document']
+    from mihomo_subscriptions import attach, save, prune
+    records=load_optional(folder,refresh=update)
+    provider=records[0]['document'] if records else None
     overrides = yaml.safe_load((folder/'overrides.yaml').read_text()) if (folder/'overrides.yaml').exists() else {}
-    config = attach(compose(provider, root, overrides), records, folder)
+    config = attach(compose(provider, root, overrides), records, folder) if records else pending_config(root)
+    # Preserve previously authorized tailnet origins across subscription refreshes.
+    previous=yaml.safe_load((folder/'config.yaml').read_text()) if (folder/'config.yaml').exists() else {}
+    if not isinstance(previous, dict):raise RuntimeError('Existing Mihomo config.yaml is invalid; original file retained.')
+    origins=config['external-controller-cors']['allow-origins']
+    origins.extend(origin for origin in previous.get('external-controller-cors', {}).get('allow-origins', [])
+                   if origin not in origins)
     candidate = folder/'candidate.yaml'
     dump_yaml(candidate, config)
     from mihomo_rules import expanded
@@ -188,10 +183,10 @@ def refresh(root, update=False):
     expanded_path.unlink()
     try: current = api(root)
     except OSError: current = None
-    if current is not None:
+    first_subscription = bool(records) and (folder/PENDING).exists()
+    if current is not None and not first_subscription and records:
         # Preserve deliberate dashboard choices on both install and update.
         config['mode'] = current['mode']; config['tun']['enable'] = current['tun']['enable']
-    previous=yaml.safe_load((folder/'config.yaml').read_text()) if (folder/'config.yaml').exists() else {}
     if update:
         if current is not None:
             old = yaml.safe_load((folder/'config.yaml').read_text())
@@ -205,14 +200,79 @@ def refresh(root, update=False):
                 api(root, 'PUT', '/configs?force=true', {'payload': json.dumps(old, ensure_ascii=False)})
                 raise RuntimeError('Reload failed; previous runtime configuration restored') from None
     dump_yaml(candidate, config); candidate.replace(folder/'config.yaml')
-    dump_yaml(folder/'provider.yaml', provider)
-    save(folder,records);prune(folder,config,previous)
+    if records:
+        dump_yaml(folder/'provider.yaml', provider)
+        save(folder,records);prune(folder,config,previous)
+    mark_subscription_state(folder, records)
     print('Validated configuration:',len(records),'subscriptions,',sum(len(r['document']['proxies']) for r in records),'nodes,',len(config['rules']),'rules.')
 
 
 def plist_write(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plistlib.dumps(data)); path.chmod(0o600)
+
+
+def serve_state():
+    result = run([TSBIN, 'serve', 'status', '--json'], capture_output=True, text=True, timeout=15)
+    return json.loads(result.stdout) or {}
+
+
+def dashboard_shared(state=None):
+    if not TSBIN.exists():return False
+    state = serve_state() if state is None else state
+    return (state.get('TCP', {}).get('9090') == {'TCPForward': '127.0.0.1:9090'}
+            and not any(enabled and host.endswith(':9090') for host, enabled in state.get('AllowFunnel', {}).items()))
+
+
+@configuration_lock
+def expose_dashboard(root):
+    """Expose only this port on the tailnet; never enable Funnel or reset Serve."""
+    import yaml
+    path = root/'config/mihomo/config.yaml'
+    if not TSBIN.exists() or not path.exists():return False
+    try:
+        result = run([TSBIN, 'status', '--json'], capture_output=True, text=True, timeout=15)
+    except (OSError, sp.SubprocessError):
+        print('Tailscale 控制页面待连接：请运行 wb tailscale start / apply 启动系统服务并登录；后台会自动重试。')
+        return False
+    status = json.loads(result.stdout)
+    if status.get('BackendState') != 'Running':
+        print('Tailscale 控制页面待连接：登录后将在 60 秒内自动配置。')
+        return False
+    state = serve_state()
+    if state.get('TCP', {}).get('9090') and not dashboard_shared(state):
+        raise RuntimeError('Tailscale Serve 9090 is already used by another service; existing forwarding preserved.')
+    origins = []
+    for value in status.get('TailscaleIPs', []):
+        address = ipaddress.ip_address(value)
+        if address in ipaddress.ip_network('100.64.0.0/10') or address in ipaddress.ip_network('fd7a:115c:a1e0::/48'):
+            host = '[' + str(address) + ']' if address.version == 6 else str(address)
+            origins.append('http://' + host + ':9090')
+    hostname = status.get('Self', {}).get('DNSName', '').rstrip('.')
+    if hostname.endswith('.ts.net'):origins.append('http://' + hostname + ':9090')
+    config = yaml.safe_load(path.read_text())
+    if config.get('external-controller') != '127.0.0.1:9090':
+        raise RuntimeError('Mac Mihomo must listen on 127.0.0.1:9090 before tailnet forwarding is enabled.')
+    allowed = config.setdefault('external-controller-cors', {}).setdefault('allow-origins', [])
+    missing = [origin for origin in origins if origin not in allowed]
+    if missing:
+        # The API must be ready before exposing it. Preserve live dashboard choices.
+        current = api(root)
+        old = copy.deepcopy(config)
+        old['mode'] = config['mode'] = current['mode']
+        old['tun']['enable'] = config['tun']['enable'] = current['tun']['enable']
+        allowed.extend(missing)
+        try:
+            api(root, 'PUT', '/configs?force=true', {'payload': json.dumps(config, ensure_ascii=False)})
+        except Exception:
+            api(root, 'PUT', '/configs?force=true', {'payload': json.dumps(old, ensure_ascii=False)})
+            raise RuntimeError('Tailnet dashboard configuration failed; previous runtime restored') from None
+        dump_yaml(path, config)
+    if not dashboard_shared(state):
+        run([TSBIN, 'serve', '--bg', '--yes', '--tcp=9090', 'tcp://127.0.0.1:9090'], timeout=30)
+        if not dashboard_shared():raise RuntimeError('Tailscale dashboard forwarding could not be verified')
+        print('Tailscale 控制页面：' + (origins[0] if origins else 'http://<Tailscale-IP>:9090') + '/ui/')
+    return True
 
 
 def install_user_entries(root):
@@ -226,6 +286,7 @@ def install_user_entries(root):
     domain = 'gui/'+str(os.getuid())
     sp.run(['launchctl', 'bootout', domain+'/'+label], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     run(['launchctl', 'bootstrap', domain, agent])
+    install_tailnet_entry(root)
     app = Path.home()/'Applications/Mihomo.app/Contents'
     executable = app/'MacOS/mihomo-web'
     write(executable, '#!/bin/sh\nexec '+shlex.quote(str(root/'bin/workbench'))+' mihomo open\n', 0o755)
@@ -245,15 +306,24 @@ def install_user_entries(root):
             run(['iconutil','-c','icns',iconset,'-o',resources/'AppIcon.icns'])
 
 
+def install_tailnet_entry(root):
+    # Retry after first login/connection without requiring another installation.
+    tailnet_label = LABEL + '.tailnet'
+    tailnet_agent = Path.home()/'Library/LaunchAgents'/(tailnet_label + '.plist')
+    domain = 'gui/'+str(os.getuid())
+    plist_write(tailnet_agent, {'Label': tailnet_label,
+        'ProgramArguments': [sys.executable, str(REPO/'libexec/macos_network.py'), '--prefix', str(root), 'mihomo', 'expose'],
+        'RunAtLoad': True, 'StartInterval': 60, 'ProcessType': 'Background',
+        'StandardOutPath': str(root/'logs/mihomo-tailnet.log'), 'StandardErrorPath': str(root/'logs/mihomo-tailnet.log'), 'Umask': 63})
+    sp.run(['launchctl', 'bootout', domain+'/'+tailnet_label], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+    run(['launchctl', 'bootstrap', domain, tailnet_agent])
+
+
 def prepare(root):
-    if skip_unconfigured(root):return
     folder=root/'config/mihomo';folder.mkdir(parents=True,exist_ok=True);folder.chmod(0o700)
     install_assets(root);import_verge(root)
-    if has_subscription(root) or (folder/'provider.yaml').exists() or (folder/'subscriptions.json').exists():
-        refresh(root)
-    elif not (folder/'config.yaml').exists():
-        raise RuntimeError('Mihomo has existing installation state but no configuration source. '
-                           'Restore config/mihomo/subscription.url or provider.yaml, then run workbench mihomo install.')
+    prepare_subscription_file(folder)
+    refresh(root)
     install_user_entries(root)
     print('Prepared Mihomo and MetaCubeXD. Run workbench mihomo apply to install the system daemon.')
 
@@ -282,21 +352,25 @@ def clear_verge_system_proxy():
             result=run(['/usr/sbin/networksetup','-get'+kind,service],capture_output=True,text=True)
             fields=dict(line.split(': ',1) for line in result.stdout.splitlines() if ': ' in line)
             if fields.get('Enabled')=='Yes' and fields.get('Server') in ('127.0.0.1','localhost') and fields.get('Port')==port:
-                run(['/usr/sbin/networksetup','-set'+kind+'state',service,'off'])
+                admin(['/usr/sbin/networksetup','-set'+kind+'state',service,'off'])
 
 
 def apply(root):
-    if skip_unconfigured(root):return
     if not (root/'config/mihomo/config.yaml').exists():
         raise RuntimeError('No validated configuration. Run workbench mihomo install first.')
+    install_tailnet_entry(root)
     if DAEMON.exists() and (SYSTEM/'mihomo').exists():
         installed=hashlib.sha256((SYSTEM/'mihomo').read_bytes()).digest()
         prepared=hashlib.sha256((root/'apps/mihomo/current/mihomo').read_bytes()).digest()
         if installed == prepared:
             try:
                 api(root)
-                print('Mihomo is already configured; use restart for an explicit restart.');return
-            except OSError:pass
+            except OSError:
+                pass
+            else:
+                print('Mihomo is already configured; use restart for an explicit restart.')
+                expose_dashboard(root)
+                return
     staged=prepare_daemon(root)
     import yaml
     desired=yaml.safe_load((root/'config/mihomo/config.yaml').read_text())
@@ -324,60 +398,22 @@ def apply(root):
         cfg=yaml.safe_load((VERGE/'verge.yaml').read_text());cfg['enable_auto_launch']=False
         dump_yaml(VERGE/'verge.yaml',cfg)
     if desired['tun']['enable']:clear_verge_system_proxy()
+    expose_dashboard(root)
     print('Mihomo system daemon is ready; Clash Verge background service has been disabled.')
 
 
 def tailscale_installed():
-    if not TSBIN.exists():return False
-    with (TSAPP/'Contents/Info.plist').open('rb') as f:info=plistlib.load(f)
-    if info.get('CFBundleIdentifier')!='io.tailscale.ipn.macsys':
-        raise RuntimeError('Existing Tailscale is not the official standalone variant; do not overwrite it automatically')
-    result=sp.run(['codesign','-dv',TSAPP],capture_output=True,text=True)
-    if result.returncode or 'TeamIdentifier=W5364U7YZB' not in result.stderr:
-        raise RuntimeError('Unexpected Tailscale signing identity')
-    verification=sp.run(['codesign','--verify','--deep','--strict',TSAPP],capture_output=True)
-    if verification.returncode:raise RuntimeError('Existing Tailscale app signature verification failed')
-    return True
+    return macos_tailscale.installed()
 
 
 def install_tailscale(root, update=False):
-    installed=tailscale_installed()
-    if installed and not update:
-        print('Official Tailscale standalone app already installed; preserving login and VPN preferences.')
-        return
-    spec=read(REPO/'components/tailscale/component.toml')['install']['macos']
-    with urllib.request.urlopen(spec['metadata'],timeout=30) as reply:metadata=json.load(reply)
-    filename=metadata['MacZips']['universal-package']
-    if '/' in filename or not filename.endswith('-macos.pkg'):raise RuntimeError('Unexpected official package filename')
-    if installed:
-        with (TSAPP/'Contents/Info.plist').open('rb') as f:version=plistlib.load(f)['CFBundleShortVersionString']
-        if tuple(map(int,version.split('.'))) >= tuple(map(int,metadata['MacZipsVersion'].split('.'))):
-            print('Tailscale is already at or above the official stable version.');return
-    package=root/'downloads/archives'/filename;package.parent.mkdir(parents=True,exist_ok=True)
-    from software import fetch
-    fetch(spec['base_url']+filename,package)
-    result=run(['pkgutil','--check-signature',package],capture_output=True,text=True)
-    if 'Developer ID Installer: Tailscale Inc. ('+spec['team_id']+')' not in result.stdout:
-        raise RuntimeError('Official Tailscale package signing identity mismatch')
-    run(['spctl','--assess','--type','install',package],capture_output=True)
-    admin(['/usr/sbin/installer','-pkg',package,'-target','/'])
-    if not tailscale_installed():raise RuntimeError('Tailscale installation could not be verified')
-    run(['open',TSAPP])
-    print('Official PKG installed. Complete macOS network-extension approval/login if prompted.')
+    return macos_tailscale.install(root, update)
 
 
 def status(root, service, check=False):
-    if service=='mihomo' and skip_unconfigured(root):return 0
     issues=[]
     if service=='tailscale':
-        if not tailscale_installed():issues.append('Official standalone Tailscale is not installed')
-        else:
-            result=sp.run([TSBIN,'status','--json'],capture_output=True,text=True,timeout=15)
-            try:data=json.loads(result.stdout)
-            except ValueError:data={};issues.append('Cannot read Tailscale status')
-            print('Tailscale:',data.get('BackendState','unavailable'))
-            issues.extend(data.get('Health') or [])
-            if data.get('BackendState')=='NeedsLogin':issues.append('Open Tailscale to sign in')
+        return macos_tailscale.status(check)
     else:
         service_result=sp.run(['launchctl','print','system/'+LABEL],capture_output=True,text=True)
         if service_result.returncode:issues.append('LaunchDaemon is not loaded: workbench mihomo apply')
@@ -386,8 +422,16 @@ def status(root, service, check=False):
             if cfg.get('external-controller') not in (None,'127.0.0.1:9090'):issues.append('Controller is not loopback-only')
         except (OSError,ValueError):issues.append('Mihomo controller is unavailable')
         if not (root/'apps/metacubexd/current/index.html').exists():issues.append('MetaCubeXD is missing')
+        if (root/'config/mihomo'/PENDING).exists():
+            print('订阅待配置：编辑 config/mihomo/subscription.url 后运行 wb mihomo update；服务仍可使用。')
+        try:
+            if not dashboard_shared():issues.append('Tailscale dashboard pending: sign in/connect Tailscale; automatic retry every 60s')
+        except (OSError,ValueError,sp.SubprocessError,RuntimeError):
+            issues.append('Cannot verify Tailscale dashboard forwarding')
         if sp.run(['launchctl','print',f'gui/{os.getuid()}/{LABEL}.subscription'],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode:
             issues.append('Subscription LaunchAgent is not loaded')
+        if sp.run(['launchctl','print',f'gui/{os.getuid()}/{LABEL}.tailnet'],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode:
+            issues.append('Tailnet dashboard LaunchAgent is not loaded: workbench mihomo apply')
     for issue in issues:print('PENDING:',issue)
     if not issues:print(service+': OK')
     return int(bool(issues)) if check else 0
@@ -403,26 +447,24 @@ def pending(root):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--prefix',type=Path,default=ROOT)
-    p.add_argument('service',choices=['mihomo','tailscale']);p.add_argument('action',choices=['install','update','apply','start','stop','restart','status','check','logs','open'])
+    p.add_argument('service',choices=['mihomo','tailscale']);p.add_argument('action',choices=['install','update','apply','start','stop','restart','status','check','logs','open','expose'])
     a=p.parse_args();root=a.prefix.resolve();os.umask(0o077)
     if platform.system()!='Darwin':p.error('This backend requires macOS')
     if a.service=='tailscale':
-        if a.action in ('install','update'):install_tailscale(root,a.action=='update')
-        elif a.action in ('status','check'):return status(root,a.service,a.action=='check')
-        elif a.action in ('apply','open'):run(['open',TSAPP])
-        elif a.action=='start':run([TSBIN,'up'])
-        elif a.action=='stop':run([TSBIN,'down'])
-        elif a.action=='restart':run([TSBIN,'down']);run([TSBIN,'up'])
-        elif a.action=='logs':run(['log','show','--last','10m','--style','compact','--predicate','subsystem BEGINSWITH "io.tailscale"'])
-        return 0
+        if a.action in ('status','check'):return status(root,a.service,a.action=='check')
+        code = macos_tailscale.action(root, a.action)
+        if (not code and a.action=='apply' and (root/'config/mihomo/config.yaml').exists()
+                and ensure_yaml(root,'mihomo','expose')):
+            expose_dashboard(root)
+        return code
     if a.action in ('install','apply','update'):
-        # A fresh machine without a subscription needs neither PyYAML nor assets,
-        # administrator authorization, or a failing daily update job.
-        if skip_unconfigured(root):return 0
         if not ensure_yaml(root,a.service,a.action):return 0
     if a.action=='install':prepare(root)
     elif a.action=='apply':apply(root)
     elif a.action=='update':refresh(root,True)
+    elif a.action=='expose':
+        if not ensure_yaml(root,a.service,a.action):return 0
+        expose_dashboard(root)
     elif a.action in ('status','check'):return status(root,a.service,a.action=='check')
     elif a.action=='open':
         query=urllib.parse.urlencode({'hostname':'127.0.0.1','port':'9090','http':'true'})

@@ -13,10 +13,27 @@ cd ~/Software/src/workbench
 ```
 
 `install.sh` 补齐系统引导前提，准备 Python 3.12，再执行整机安装与检查。
-macOS 初次安装需要 Apple Command Line Tools 和 Homebrew 授权；Linux 的原生依赖可能需要 sudo。
-SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录与代理订阅由本机用户提供。
+macOS 初次安装需要 Apple Command Line Tools；整机安装在终端验证一次 sudo，并在任务期间自动续期。
+macOS Tailscale 改用 Homebrew formula 的 root 级 `tailscaled` 服务，登录前即可运行；首次登录使用 `wb tailscale apply`。
+已有 GUI 版需先在本机卸载并重启后迁移，详见 [macOS 网络说明](docs/macos-network.md)。Linux 的原生依赖可能需要 sudo。
+SteamOS 保持只读，应用、Python 和编译环境安装在用户目录。Tailscale 登录由本机用户完成。
+Mihomo 无订阅也会完整安装并提供本机/Tailscale 控制页面；之后填写 `Software/config/mihomo/subscription.url` 并运行 `wb mihomo update` 生效。
 
-macOS 完整安装包含 WezTerm、BetterDisplay、Maccy 和 Ice（`jordanbaird-ice`），另提供可选的完整版 MacTeX（含图形应用）。
+macOS 完整安装包含 WezTerm、BetterDisplay、Maccy、Ice（`jordanbaird-ice`）和 Keepresso（作者的 Homebrew tap：`gyorgysh/keepresso/keepresso`，要求 macOS 14+），另提供可选的完整版 MacTeX（含图形应用）。
+所有支持平台（macOS、Steam Deck、Fedora、Ubuntu、Debian）的完整安装都包含 CrossDesk，
+从 [官方 GitHub Releases](https://github.com/kunkundi/crossdesk/releases/latest) 自动选择最新正式版与对应架构，并校验 GitHub 提供的 SHA256。
+macOS 使用官方 PKG（验证签名与 Gatekeeper，复用终端 sudo 授权），Ubuntu/Debian 使用官方 DEB，
+不默认安装其推荐的大型 CUDA 工具包。Fedora/Steam Deck 将同一个官方 DEB 解包到 `Software/apps/crossdesk`，
+用独立 Pixi 环境提供运行库，并创建应用菜单入口，不修改 SteamOS 只读系统。
+首次使用从应用菜单打开 CrossDesk，按系统提示授予屏幕录制、辅助功能等权限。
+
+```sh
+wb crossdesk install  # 补齐缺失安装；已有可用安装直接跳过
+wb crossdesk update   # 查询并安装官方最新正式版
+wb crossdesk check    # 本地安装检查；Linux 同时检查动态库
+wb crossdesk list     # 查看本机版本与安装位置，不联网
+```
+
 WezTerm 由独立组件安装，BetterDisplay、Maccy 和 Ice 由 [macOS Brewfile](platforms/macos/Brewfile) 安装，并纳入平台检查。
 字体也在平台阶段自动安装：`font-meslo-for-powerlevel10k` 提供 Emacs/WezTerm 使用的 `MesloLGS NF`
 （常规、粗体、斜体、粗斜体），`font-sarasa-gothic` 提供 Emacs 首选中文字体 `Sarasa Mono SC`。
@@ -86,7 +103,7 @@ workbench texlive install
 | terminal | WezTerm、Zsh、fzf、Starship、zoxide 与 Shell 插件 |
 | development | Python、Node、编译器、LSP、检查工具和可选 MCP 工具 |
 | editors | Emacs、Helix |
-| network | Mihomo（含 MetaCubeXD）、Tailscale |
+| network | Mihomo（含 MetaCubeXD）、Tailscale、CrossDesk |
 | latex | TeX Live |
 | fonts | 工作站字体（macOS） |
 

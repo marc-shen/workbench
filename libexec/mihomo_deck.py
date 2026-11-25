@@ -11,6 +11,7 @@ import tarfile
 import urllib.request
 
 from config_data import read as read_toml
+from mihomo_setup import PENDING, load_optional, pending_config, prepare_subscription_file, mark_subscription_state
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -104,10 +105,12 @@ def refresh_config(root, refresh=False):
     import yaml
     from deck_network import write, tailscale_ip
     folder=root/'config/mihomo'
-    from mihomo_subscriptions import load, attach, save
-    records=load(folder,refresh=refresh)
-    provider=records[0]['document']
-    config=attach(compose(provider,root,tailscale_ip()),records,folder)
+    from mihomo_subscriptions import attach, save
+    records=load_optional(folder,refresh=refresh)
+    provider=records[0]['document'] if records else None
+    first_subscription = bool(records) and (folder/PENDING).exists()
+    config=(attach(compose(provider,root,tailscale_ip()),records,folder) if records
+            else pending_config(root,tailscale_ip(),'0.0.0.0:9090'))
     candidate=folder/'candidate.yaml';write(candidate,yaml.safe_dump(config,allow_unicode=True,sort_keys=False),0o600)
     from mihomo_runtime import standby_config, private_json
     standby=folder/'standby-candidate.json'
@@ -125,9 +128,14 @@ def refresh_config(root, refresh=False):
     target=folder/'config.yaml'
     changed=not target.exists() or target.read_bytes()!=candidate.read_bytes()
     candidate.replace(target)
-    write(folder/'provider.yaml',yaml.safe_dump(provider,allow_unicode=True,sort_keys=False),0o600)
-    save(folder,records)
-    print('Prepared:',len(provider.get('proxies',[])),'nodes,',len(provider['proxy-groups']),'vendor groups,',len(provider['rules']),'vendor rules')
+    if records:
+        write(folder/'provider.yaml',yaml.safe_dump(provider,allow_unicode=True,sort_keys=False),0o600)
+        save(folder,records)
+    if first_subscription:
+        # Pending mode's automatic DIRECT/TUN-off state is not a user preference.
+        (folder/'network-intent.json').unlink(missing_ok=True)
+    mark_subscription_state(folder, records)
+    print('Prepared:',len(records),'subscriptions; dashboard available without a subscription.')
     return changed
 
 
@@ -157,6 +165,11 @@ WantedBy=timers.target
 
 
 def daily_update(root):
+    from mihomo_setup import has_subscription
+    folder=root/'config/mihomo'
+    if (folder/PENDING).exists() and not has_subscription(folder):
+        print('订阅待配置；保留直连控制页面。填写 subscription.url 后运行 wb mihomo update。')
+        return
     from mihomo_network import network_available
     online, reason = network_available()
     if online is not True:
@@ -166,7 +179,7 @@ def daily_update(root):
     os.umask(0o077)
     folder=root/'config/mihomo'
     previous={name:(folder/name).read_bytes() if (folder/name).exists() else None
-              for name in ('config.yaml','provider.yaml','subscriptions.json')}
+              for name in ('config.yaml','provider.yaml','subscriptions.json',PENDING,'network-intent.json')}
     active=sp.run(['systemctl','--user','is-active','--quiet','mihomo']).returncode==0
     try:
         changed=refresh_config(root,True)
@@ -215,10 +228,7 @@ def prepare(root):
     write(root/'apps/metacubexd/current/config.js',
           'window.__METACUBEXD_CONFIG__ = {defaultBackendURL: window.location.origin};\n')
     folder=root/'config/mihomo';folder.mkdir(parents=True,exist_ok=True);folder.chmod(0o700)
-    if not (folder/'provider.yaml').exists() and not (folder/'subscription.url').exists():
-        install_update_timer(root)
-        print('Clients installed. Put your subscription URL in config/mihomo/subscription.url (mode 600), then run workbench mihomo install.')
-        return
+    prepare_subscription_file(folder)
     refresh_config(root)
     unit=f'''[Unit]
 Description=Mihomo proxy with MetaCubeXD

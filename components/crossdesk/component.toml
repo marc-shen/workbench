@@ -1,0 +1,29 @@
+schema = 1
+name = "crossdesk"
+description = "CrossDesk 远程桌面（官方 GitHub 安装包）"
+category = "network"
+tags = []
+platforms = ["macos", "steamdeck", "fedora", "ubuntu", "debian"]
+requires = []
+entrypoint = ["{python}", "{repo}/libexec/component.py", "crossdesk"]
+arguments = ""
+
+[actions.list]
+description = "列出安装版本与位置"
+
+[actions.check]
+description = "检查安装和运行依赖"
+
+[actions.install]
+description = "安装官方最新正式版，保留已有安装"
+
+[actions.update]
+description = "更新至官方 GitHub 最新正式版"
+
+[install]
+kind = "crossdesk"
+provider = "upstream"
+
+[install.providers_by_platform]
+steamdeck = ["pixi"]
+fedora = ["pixi"]

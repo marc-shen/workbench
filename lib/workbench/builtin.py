@@ -64,6 +64,9 @@ def main(name, argv):
             return 0
     install = spec.get('install', {})
     kind = install.get('kind')
+    if kind == 'crossdesk':
+        if args: raise RuntimeError('crossdesk takes no targets')
+        return backend('crossdesk.py', action)
     if kind == 'fonts':
         from .fonts import font_action
         return font_action(action, argv[1:], REPO, platform)

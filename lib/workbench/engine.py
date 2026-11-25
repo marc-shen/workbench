@@ -11,6 +11,7 @@ import time
 from .registry import order, supported
 from .ui import Console
 from .process import elapsed, stream_command
+from .privilege import sudo_session
 
 READ_ONLY = {'list', 'check', 'status', 'logs', 'plan', 'show'}
 # A GUI can remain open indefinitely. Launching it must neither hold the
@@ -90,7 +91,7 @@ def execute(steps, repo, root, platform):
         return max((code if code >= 0 else 128 - code for code in codes), default=0)
     if os.geteuid() == 0:
         raise RuntimeError('Run as the target user; platform installers request sudo only where needed.')
-    with lock(root):
+    with lock(root), sudo_session(steps, platform):
         stamp = datetime.datetime.now().astimezone().strftime('%Y%m%d-%H%M%S-%f')
         directory = root / 'data/workbench/runs'
         directory.mkdir(parents=True, exist_ok=True)
