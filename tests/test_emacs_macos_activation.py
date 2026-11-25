@@ -14,6 +14,22 @@ EMACS = shutil.which('emacs') or '/Applications/Emacs.app/Contents/MacOS/Emacs'
 
 
 class ActivationTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'darwin' and Path(
+        '/Applications/Emacs.app/Contents/Resources/include/emacs-module.h').is_file(),
+        'Requires macOS and Emacs module headers')
+    def test_native_dock_menu_and_reopen_appleevent(self):
+        with tempfile.TemporaryDirectory(prefix='emacs dock event ') as tmp:
+            executable = Path(tmp) / 'test-client-menu'
+            source = Path(__file__).with_name('test-emacs-client-menu-native.m')
+            subprocess.run(['xcrun', 'clang', '-fobjc-arc', '-Wall', '-Wextra',
+                            '-Werror', '-Wno-unused-parameter',
+                            '-I', '/Applications/Emacs.app/Contents/Resources/include',
+                            '-framework', 'Cocoa', str(source), '-o', str(executable)],
+                           check=True, capture_output=True, text=True, timeout=60)
+            result = subprocess.run([str(executable)], check=True, capture_output=True,
+                                    text=True, timeout=15)
+            self.assertIn('all checks passed', result.stdout)
+
     def request(self, arguments=(), existing=True, previous_pid=None):
         with tempfile.TemporaryDirectory(prefix='emacs activation ') as tmp:
             root = Path(tmp)
@@ -80,7 +96,10 @@ print('nil' if '(let* ((frames' in sys.argv[-1] and os.environ['TEST_EXISTING'] 
     def test_selection_keeps_current_frame_and_excludes_child_and_terminal(self):
         expression = next(c[-1] for c in self.request() if '(let* ((frames' in c[-1])
         # Run the actual emitted Lisp with fake frames, never touching GUI focus.
+        # Mocking built-ins in -Q must not invoke the host's native compiler;
+        # compiler setup is exercised separately by test_emacs_native_comp.py.
         program = '''(progn (require 'cl-lib) (require 'seq)
+          (setq native-comp-enable-subr-trampolines nil)
           (dolist (selected '(second child terminal))
             (let (target)
               (cl-letf (((symbol-function 'frame-list)

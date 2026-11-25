@@ -25,6 +25,9 @@ static void activateClient(NSArray<NSString *> *arguments) {
     activateClient(@[]);
     return YES;
 }
+- (void)handleReopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply {
+    activateClient(@[]);
+}
 - (void)restartEmacs:(id)sender {
     // Run confirmation/recovery outside the daemon that will be terminated.
     NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
@@ -43,6 +46,22 @@ static void activateClient(NSArray<NSString *> *arguments) {
 @end
 
 static ProfileClientActions *recovery;
+
+static void configureClientReopen(NSAppleEventManager *events,
+                                  id<NSApplicationDelegate> delegate,
+                                  ProfileClientActions *actions) {
+    SEL reopen = @selector(applicationShouldHandleReopen:hasVisibleWindows:);
+    Method method = class_getInstanceMethod([ProfileClientActions class], reopen);
+    // Retain the delegate fallback without replacing an upstream implementation.
+    class_addMethod(object_getClass(delegate), reopen, method_getImplementation(method),
+                    method_getTypeEncoding(method));
+    // A launchd-started Emacs on macOS 27 can receive reopen AppleEvents without
+    // AppKit calling the dynamically added delegate method. Register the actual
+    // Dock/LaunchServices event as well, including after the last frame closes.
+    // This replaces one handler rather than adding observers on every frame.
+    [events setEventHandler:actions andSelector:@selector(handleReopen:withReplyEvent:)
+             forEventClass:kCoreEventClass andEventID:kAEReopenApplication];
+}
 
 static void configureClientMenu(NSMenu *menu, ProfileClientActions *actions) {
     NSMenuItem *newFrame = [menu itemWithTag:19428];
@@ -79,11 +98,7 @@ static emacs_value installMenu(emacs_env *env, ptrdiff_t nargs, emacs_value *arg
         if (!menu) return env->intern(env, "nil");
         if (!recovery) recovery = [ProfileClientActions new];
         configureClientMenu(menu, recovery);
-        SEL reopen = @selector(applicationShouldHandleReopen:hasVisibleWindows:);
-        Method method = class_getInstanceMethod([ProfileClientActions class], reopen);
-        // Do not replace an upstream implementation if a later Emacs supplies one.
-        class_addMethod(object_getClass(delegate), reopen, method_getImplementation(method),
-                        method_getTypeEncoding(method));
+        configureClientReopen([NSAppleEventManager sharedAppleEventManager], delegate, recovery);
         if (![menu itemWithTag:19427]) {
             [menu addItem:[NSMenuItem separatorItem]];
             NSMenuItem *item = [menu addItemWithTitle:@"强制重启 Emacs 后台…"

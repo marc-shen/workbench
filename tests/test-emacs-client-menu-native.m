@@ -1,5 +1,22 @@
 #include <assert.h>
-#import "../emacs.d/Emacs Client.app/Contents/Resources/client-menu.m"
+#import "../config/emacs/Emacs Client.app/Contents/Resources/client-menu.m"
+
+@interface TestClientActions : ProfileClientActions
+@property NSUInteger reopenCount;
+@end
+@implementation TestClientActions
+- (void)handleReopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply {
+    self.reopenCount++;
+}
+@end
+
+@interface TestExistingDelegate : NSObject <NSApplicationDelegate>
+@end
+@implementation TestExistingDelegate
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)visible {
+    return NO;
+}
+@end
 
 int main(void) {
     @autoreleasepool {
@@ -19,6 +36,26 @@ int main(void) {
         configureClientMenu(empty, actions);
         assert(empty.numberOfItems == 1);
         assert([empty itemWithTag:19428].action == @selector(openClientFrame:));
-        puts("Dock New Frame routing: all checks passed");
+        // Exercise the AppleEvent entry point, not a direct delegate call.
+        // Repeated installs must deliver one callback and preserve upstream
+        // delegate behavior, even with no windows or native Emacs frames.
+        TestExistingDelegate *delegate = [TestExistingDelegate new];
+        TestClientActions *receiver = [TestClientActions new];
+        NSAppleEventManager *events = [NSAppleEventManager sharedAppleEventManager];
+        configureClientReopen(events, delegate, receiver);
+        configureClientReopen(events, delegate, receiver);
+        assert(![delegate applicationShouldHandleReopen:[NSApplication sharedApplication]
+                                      hasVisibleWindows:NO]);
+        NSAppleEventDescriptor *event = [NSAppleEventDescriptor
+            appleEventWithEventClass:kCoreEventClass eventID:kAEReopenApplication
+            targetDescriptor:nil returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
+        AppleEvent reply = {typeNull, NULL};
+        OSStatus status = [events dispatchRawAppleEvent:event.aeDesc
+                                          withRawReply:&reply handlerRefCon:(__bridge void *)receiver];
+        assert(status == noErr);
+        assert(receiver.reopenCount == 1);
+        AEDisposeDesc(&reply);
+        [events removeEventHandlerForEventClass:kCoreEventClass andEventID:kAEReopenApplication];
+        puts("Dock New Frame and reopen AppleEvent routing: all checks passed");
     }
 }
