@@ -12,6 +12,7 @@ from config_data import read
 
 SPEC = read(Path(__file__).resolve().parents[1] / 'components/tailscale/component.toml')['install']['macos']
 LABEL = SPEC['service']
+LABELS = (LABEL, *SPEC.get('legacy_services', []))
 FORMULA = SPEC['formula']
 DAEMON = Path('/Library/LaunchDaemons') / (LABEL + '.plist')
 SOCKET = '/var/run/tailscaled.socket'
@@ -30,17 +31,23 @@ def run(args, **kwargs):
     return sp.run(list(map(str, args)), check=True, **kwargs)
 
 
-def admin(args):
-    return run(['/usr/bin/sudo', *([] if sys.stdin.isatty() else ['-n']), '--', *args])
+def admin(args, **kwargs):
+    return run(['/usr/bin/sudo', *([] if sys.stdin.isatty() else ['-n']), '--', *args], **kwargs)
 
 
-def loaded(label=LABEL, domain='system'):
-    return sp.run(['/bin/launchctl', 'print', domain + '/' + label],
-                  stdout=sp.DEVNULL, stderr=sp.DEVNULL).returncode == 0
+def loaded(label=None, domain='system'):
+    return any(sp.run(['/bin/launchctl', 'print', domain + '/' + name],
+                      stdout=sp.DEVNULL, stderr=sp.DEVNULL).returncode == 0
+               for name in ((label,) if label else LABELS))
+
+
+def daemon_files():
+    return [DAEMON, *(DAEMON.with_name(name + '.plist') for name in LABELS if name != LABEL)]
 
 
 def installed():
-    return os.access(binary(), os.X_OK) and os.access(binary().with_name('tailscaled'), os.X_OK) and DAEMON.is_file()
+    return (os.access(binary(), os.X_OK) and os.access(binary().with_name('tailscaled'), os.X_OK)
+            and any(path.is_file() for path in daemon_files()))
 
 
 def conflict_check():
@@ -56,7 +63,8 @@ def conflict_check():
         raise RuntimeError('检测到 install-system-daemon 安装的 tailscaled；请先在本机运行 '
                            'sudo /usr/local/bin/tailscaled uninstall-system-daemon 卸载旧服务定义（保留状态），'
                            '再运行 wb tailscale install，避免两个守护进程使用同一状态文件。')
-    if loaded(domain=f'gui/{os.getuid()}') or (Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')).exists():
+    if loaded(domain=f'gui/{os.getuid()}') or any(
+            (Path.home() / 'Library/LaunchAgents' / (name + '.plist')).exists() for name in LABELS):
         raise RuntimeError('检测到用户级 Tailscale 服务；请运行 brew services stop tailscale，'
                            '再重跑 wb tailscale install 以安装系统级服务。')
 
@@ -65,7 +73,33 @@ def service(operation):
     brew = brew_prefix() / 'bin/brew'
     if not brew.is_file():
         raise RuntimeError('缺少 Homebrew；请先运行 wb platform install')
-    admin([brew, 'services', operation, FORMULA])
+    admin([brew, 'services', operation, FORMULA], umask=0o022)
+
+
+def repair_cli_permissions():
+    # Older Workbench runs inherited Mihomo's private umask (077). Once brew
+    # services chowns bin to root, mode 0700 locks the caller out of both CLIs.
+    # Repair only these public executables and their bin directory; never chmod
+    # the whole prefix, private Tailscale state, logs, or subscription files.
+    # macOS checks read permission on the symlink itself in readlink/realpath.
+    # Following it can succeed even while Path.resolve() fails. brew services
+    # also chowns these links to root, so repair them before resolving binaries.
+    for link in (brew_prefix() / 'opt/tailscale', brew_prefix() / 'var/homebrew/linked/tailscale'):
+        if link.is_symlink():
+            try:
+                link.readlink()
+            except PermissionError:
+                print('修复 Tailscale 符号链接权限：' + str(link), flush=True)
+                admin(['/bin/chmod', '-h', 'a+rx', link])
+                link.readlink()  # Fail here with the exact path if repair did not work.
+    directory = binary().parent
+    if directory.is_dir() and not os.access(directory, os.X_OK):
+        print('修复 tailscale bin 目录权限（保留 root 所有权）。', flush=True)
+        admin(['/bin/chmod', 'a+rx', directory])
+    for name in ('tailscale', 'tailscaled'):
+        path = directory / name
+        if path.is_file() and not os.access(path, os.X_OK):
+            admin(['/bin/chmod', 'a+rx', path])
 
 
 def wait_ready():
@@ -107,10 +141,11 @@ def install(root, update=False):
     brew = brew_prefix() / 'bin/brew'
     if not brew.is_file():
         raise RuntimeError('缺少 Homebrew；请先运行 wb platform install')
+    repair_cli_permissions()
     present = os.access(binary(), os.X_OK) and os.access(binary().with_name('tailscaled'), os.X_OK)
     before = binary().resolve() if present else None
     if update or not present:
-        run([brew, 'upgrade' if present else 'install', '--formula', FORMULA])
+        run([brew, 'upgrade' if present else 'install', '--formula', FORMULA], umask=0o022)
     if not os.access(binary(), os.X_OK) or not os.access(binary().with_name('tailscaled'), os.X_OK):
         raise RuntimeError('Homebrew 未安装完整的 tailscale/tailscaled')
     prepare_log()
@@ -151,7 +186,7 @@ def action(root, operation):
         if operation != 'stop':
             conflict_check()
         if not os.access(binary().with_name('tailscaled'), os.X_OK):
-            raise RuntimeError('请先运行 wb tailscale install')
+            raise RuntimeError('tailscaled 缺失或不可执行；请先运行 wb tailscale install 修复')
         service(operation)
         if operation != 'stop':
             wait_ready()
@@ -174,7 +209,7 @@ def status(check=False):
         except ValueError:
             data = {}
         state = data.get('BackendState', 'unavailable')
-        print('tailscaled (system/' + LABEL + '): ' + state)
+        print('tailscaled 系统服务: ' + state)
         issues.extend(data.get('Health') or [])
         if state not in ('Running', 'Stopped'):
             issues.append('登录/设备授权待完成：wb tailscale apply' if state in ('NeedsLogin', 'NeedsMachineAuth')

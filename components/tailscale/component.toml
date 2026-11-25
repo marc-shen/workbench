@@ -55,4 +55,5 @@ revision = "4691bb20d492ae9b2f5121c3eaf6e2dc1950e73f"
 
 [install.macos]
 formula = "tailscale"
-service = "homebrew.mxcl.tailscale"
+service = "sh.brew.tailscale"
+legacy_services = ["homebrew.mxcl.tailscale"]

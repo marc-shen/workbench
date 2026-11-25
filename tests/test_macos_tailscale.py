@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO / 'libexec'), str(REPO / 'lib')]
 import macos_tailscale as ts
+import macos_network as mac
 from workbench.privilege import needs_admin
 
 
@@ -60,8 +61,9 @@ class TailscaledTests(unittest.TestCase):
         ts.DAEMON.touch()
         real = self.prefix / 'Cellar/tailscale/2/bin/tailscale'
         real.parent.mkdir(parents=True); real.touch(); real.chmod(0o755)
-        def upgrade(command):
+        def upgrade(command, **kwargs):
             self.assertEqual(command[1:], ['upgrade', '--formula', 'tailscale'])
+            self.assertEqual(kwargs['umask'], 0o022)
             (self.bin / 'tailscale').unlink(); (self.bin / 'tailscale').symlink_to(real)
         with patch.object(ts, 'conflict_check'), patch.object(ts, 'loaded', return_value=True), \
                 patch.object(ts, 'wait_ready'), patch.object(ts, 'operator'), \
@@ -74,6 +76,95 @@ class TailscaledTests(unittest.TestCase):
             ts.service('start')
         self.assertEqual(run.call_args.args[0], ['/usr/bin/sudo', '-n', '--', self.prefix / 'bin/brew',
                                                'services', 'start', 'tailscale'])
+        self.assertEqual(run.call_args.kwargs['umask'], 0o022)
+
+    def test_homebrew_child_umask_does_not_relax_parent_private_files(self):
+        old = os.umask(0o077)
+        try:
+            directory = self.root / 'public-bin'
+            ts.run([sys.executable, '-c', 'import os,sys; os.mkdir(sys.argv[1])', str(directory)], umask=0o022)
+            private = self.root / 'private-state'; private.touch()
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        finally:
+            os.umask(old)
+
+    def test_rerun_repairs_inaccessible_bin_without_reinstall_or_restart(self):
+        ts.DAEMON.touch()
+        daemon = self.bin / 'tailscaled'; daemon.chmod(0)
+        self.bin.chmod(0)
+        def chmod(command, **kwargs):
+            self.assertEqual(command[:2], ['/bin/chmod', 'a+rx'])
+            path = command[2]; path.chmod(path.stat().st_mode | 0o555)
+        try:
+            with patch.object(ts, 'conflict_check'), patch.object(ts, 'loaded', return_value=True), \
+                    patch.object(ts, 'wait_ready'), patch.object(ts, 'operator'), \
+                    patch.object(ts, 'admin', side_effect=chmod) as admin, \
+                    patch.object(ts, 'run') as run, patch.object(ts, 'service') as service:
+                ts.install(self.root)
+            self.assertEqual([call.args[0][2] for call in admin.call_args_list], [self.bin, daemon])
+            run.assert_not_called(); service.assert_not_called()
+            self.assertTrue(os.access(daemon, os.X_OK))
+        finally:
+            self.bin.chmod(0o755)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS enforces symlink read permissions')
+    def test_real_unreadable_homebrew_symlinks_are_repaired_before_resolve(self):
+        opt = self.prefix / 'opt/tailscale'
+        cellar = self.prefix / 'Cellar/tailscale/1.104.7'
+        cellar.parent.mkdir(parents=True)
+        opt.rename(cellar); opt.symlink_to(cellar)
+        linked = self.prefix / 'var/homebrew/linked/tailscale'
+        linked.parent.mkdir(parents=True); linked.symlink_to(cellar)
+        cellar.chmod(0o700)
+        ts.DAEMON.touch()
+        commands = []
+        def chmod(command, **kwargs):
+            commands.append(command)
+            # Execute the real chmod against only this test's own files, without sudo.
+            self.assertTrue(command[-1].is_relative_to(self.root))
+            sp.run(list(map(str, command)), check=True)
+        try:
+            for link in (opt, linked): os.chmod(link, 0, follow_symlinks=False)
+            self.assertTrue(os.access(ts.binary(), os.X_OK))
+            with self.assertRaises(PermissionError): ts.binary().resolve()
+            with patch.object(ts, 'conflict_check'), patch.object(ts, 'loaded', return_value=True), \
+                    patch.object(ts, 'wait_ready'), patch.object(ts, 'operator'), \
+                    patch.object(ts, 'admin', side_effect=chmod), patch.object(ts, 'run') as run, \
+                    patch.object(ts, 'service') as service:
+                ts.install(self.root)
+                ts.install(self.root)  # Existing Workbench symlink must also resolve on reruns.
+            self.assertEqual(commands, [['/bin/chmod', '-h', 'a+rx', opt],
+                                        ['/bin/chmod', '-h', 'a+rx', linked]])
+            run.assert_not_called(); service.assert_not_called()
+            self.assertEqual((self.root / 'bin/tailscale').resolve(), cellar / 'bin/tailscale')
+            self.assertEqual(cellar.stat().st_mode & 0o777, 0o700)
+        finally:
+            for link in (opt, linked): os.chmod(link, 0o777, follow_symlinks=False)
+
+    def test_permission_failure_reports_the_exact_path(self):
+        target = '/opt/homebrew/opt/tailscale'
+        with patch.object(sys, 'argv', ['macos_network.py', '--prefix', str(self.root), 'tailscale', 'install']), \
+                patch.object(mac.platform, 'system', return_value='Darwin'), patch.object(mac.os, 'umask'), \
+                patch.object(ts, 'action', side_effect=PermissionError(13, 'Permission denied', target)):
+            with self.assertRaisesRegex(RuntimeError, target): mac.main()
+
+    def test_both_homebrew_labels_are_detected_in_system_and_user_domains(self):
+        for label in ts.LABELS:
+            for domain in ('system', 'gui/501'):
+                def launchctl(command, **kwargs):
+                    return Mock(returncode=0 if command[-1] == domain + '/' + label else 1)
+                with patch.object(ts.sp, 'run', side_effect=launchctl):
+                    self.assertTrue(ts.loaded(domain=domain))
+        with patch.object(ts.sp, 'run', return_value=Mock(returncode=1)):
+            self.assertFalse(ts.loaded())
+
+    def test_old_and_new_system_plists_count_as_installed(self):
+        for path in ts.daemon_files():
+            path.touch()
+            self.assertTrue(ts.installed())
+            path.unlink()
+        self.assertFalse(ts.installed())
 
     def test_new_log_is_private_and_user_readable(self):
         ts.prepare_log()

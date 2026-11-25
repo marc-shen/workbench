@@ -451,12 +451,16 @@ def main():
     a=p.parse_args();root=a.prefix.resolve();os.umask(0o077)
     if platform.system()!='Darwin':p.error('This backend requires macOS')
     if a.service=='tailscale':
-        if a.action in ('status','check'):return status(root,a.service,a.action=='check')
-        code = macos_tailscale.action(root, a.action)
-        if (not code and a.action=='apply' and (root/'config/mihomo/config.yaml').exists()
-                and ensure_yaml(root,'mihomo','expose')):
-            expose_dashboard(root)
-        return code
+        try:
+            if a.action in ('status','check'):return status(root,a.service,a.action=='check')
+            code = macos_tailscale.action(root, a.action)
+            if (not code and a.action=='apply' and (root/'config/mihomo/config.yaml').exists()
+                    and ensure_yaml(root,'mihomo','expose')):
+                expose_dashboard(root)
+            return code
+        except PermissionError as error:
+            raise RuntimeError('Tailscale 权限不足：' + str(error.filename or '未知路径') +
+                               '；请运行 wb tailscale install 修复。') from error
     if a.action in ('install','apply','update'):
         if not ensure_yaml(root,a.service,a.action):return 0
     if a.action=='install':prepare(root)

@@ -110,7 +110,7 @@ Mac 没有移植 Steam Deck 的离线/认证门户状态机。遇到认证 Wi-Fi
 | 每日订阅更新 | `~/Library/LaunchAgents/io.workbench.mihomo.subscription.plist`，04:10 |
 | Tailscale 页面转发检查 | `~/Library/LaunchAgents/io.workbench.mihomo.tailnet.plist`，登录后每 60 秒 |
 | Tailscale 命令 | `<Homebrew 前缀>/opt/tailscale/bin/tailscale`，链接到 `~/Software/bin/tailscale` |
-| Tailscale 系统服务 | `/Library/LaunchDaemons/homebrew.mxcl.tailscale.plist` |
+| Tailscale 系统服务 | `/Library/LaunchDaemons/sh.brew.tailscale.plist`；兼容旧版 `homebrew.mxcl.tailscale.plist` |
 | Tailscale 日志 | `<Homebrew 前缀>/var/log/tailscaled.log` |
 
 每日更新需要用户已登录；Mac 休眠期间不会主动唤醒。launchd 的日历任务在休眠结束后补跑，
